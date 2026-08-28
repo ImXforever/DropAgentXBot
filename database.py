@@ -207,7 +207,6 @@ async def init_db():
                 created_at REAL DEFAULT (strftime('%s','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_chat_msg_user ON chat_messages(user_id, id);
-            CREATE INDEX IF NOT EXISTS idx_chat_msg_session ON chat_messages(session_id);
 
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -360,6 +359,7 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_comments_product ON product_comments(product_id)",
             # --- V3-4 session persistence: session_id on chat_messages ---
             "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER DEFAULT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_chat_msg_session ON chat_messages(session_id)",
         ):
             try:
                 await db.execute(stmt)
