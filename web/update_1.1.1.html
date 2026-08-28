@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>اطلاعیه آپدیت 1.1.1 DropAgentX</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#050608; --panel:#0b0e14; --card:#131824; --border:#1e2638; --txt:#f4f7f5; --dim:#8b94a8; --gold:#f5c451; --green:#00FF88; --blue:#38bdf8; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: radial-gradient(1000px 500px at 50% -10%, #0d1a14, var(--bg)); color: var(--txt); font-family: 'Vazirmatn', sans-serif; line-height: 1.6; min-height: 100vh; padding: 20px 14px; display: flex; justify-content: center; align-items: center; }
+  .container { width: 100%; max-width: 540px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 24px 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); position: relative; overflow: hidden; }
+  .container::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--gold), var(--green), var(--blue)); }
+  .header { text-align: center; margin-bottom: 18px; }
+  .logo-box { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; background: var(--card); border: 2px solid var(--green); border-radius: 14px; margin-bottom: 8px; }
+  .logo-img { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; }
+  .badge { display: inline-block; background: rgba(0, 255, 136, 0.12); border: 1px solid var(--green); color: var(--green); font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 99px; margin-bottom: 6px; }
+  .title { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+  .subtitle { color: var(--dim); font-size: 12.5px; }
+  .summary-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+  .summary-icon { font-size: 24px; }
+  .summary-text { font-size: 12.5px; color: var(--txt); }
+  .summary-text b { color: var(--gold); }
+  .section-title { font-size: 14px; font-weight: 700; color: var(--gold); margin-bottom: 10px; }
+  .features-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .feature-item { background: rgba(19, 24, 36, 0.6); border: 1px solid rgba(30, 38, 56, 0.7); border-radius: 10px; padding: 10px 12px; }
+  .feature-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+  .feature-name { font-size: 13px; font-weight: 700; }
+  .tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+  .tag.critical { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+  .tag.stability { background: rgba(56, 189, 248, 0.15); color: var(--blue); }
+  .tag.ui { background: rgba(0, 255, 136, 0.15); color: var(--green); }
+  .feature-desc { font-size: 11.5px; color: var(--dim); }
+  .cta-box { background: linear-gradient(135deg, rgba(0, 255, 136, 0.08), rgba(245, 196, 81, 0.05)); border: 1px solid rgba(0, 255, 136, 0.2); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px; }
+  .cta-title { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
+  .cta-desc { font-size: 11.5px; color: var(--dim); margin-bottom: 10px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--green), #00c46a); color: #03130a; font-weight: 700; font-size: 12.5px; padding: 9px 20px; border-radius: 8px; text-decoration: none; }
+  .footer { text-align: center; border-top: 1px solid var(--border); padding-top: 12px; font-size: 11px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo-box"><img src="/app/assets/logo.jpg" alt="DropAgentX" class="logo-img"></div><br>
+    <span class="badge">🚀 انتشار رسمی</span>
+    <h1 class="title">اطلاعیه آپدیت 1.1.1 DropAgentX</h1>
+    <p class="subtitle">پایداری کامل سیستم، رفع باگ‌های بحرانی و ارتقای وب‌اپ</p>
+  </div>
+  <div class="summary-box">
+    <div class="summary-icon">🛡️</div>
+    <div class="summary-text">
+      <b>کاربران گرامی DropAgentX؛</b><br>
+      نسخه <b>v1.1.1</b> با هدف پایداری ۱۰۰٪ ربات، اصلاح لوگوی وب‌اپ و حفظ کامل حافظه و داده‌ها منتشر شد.
+    </div>
+  </div>
+  <div class="section-title">✨ مهم‌ترین تغییرات نسخه 1.1.1</div>
+  <div class="features-list">
+    <div class="feature-item">
+      <div class="feature-head"><span class="feature-name">⚡ رفع کرش دستور /start و پیام‌ها</span><span class="tag critical">بحرانی</span></div>
+      <div class="feature-desc">ارسال ایمن پیام‌ها جایگزین شد. تمام منوها همراه با ایموجی و متن فارسی بدون خطا ارسال می‌شوند.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-head"><span class="feature-name">🖼️ اصلاح نمایش لوگو و گرافیک وب‌اپ</span><span class="tag ui">رابط کاربری</span></div>
+      <div class="feature-desc">مشکل عدم بارگذاری لوگو در هدر Mini App، آیکون مرورگر و صفحه ورود برطرف شد.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-head"><span class="feature-name">🧠 حفظ کامل حافظه (Zero Data Loss)</span><span class="tag stability">پایداری</span></div>
+      <div class="feature-desc">تمامی موجودی‌ها، خریدها، اعتبارات و حافظه هوش مصنوعی دست‌نخورده باقی مانده‌اند.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-head"><span class="feature-name">📊 شفافیت گزارشات مدیریت</span><span class="tag stability">سیستم</span></div>
+      <div class="feature-desc">ثبت دقیق شناسه درخواست‌کننده و مدیر تأییدکننده برای شفافیت مالی.</div>
+    </div>
+  </div>
+  <div class="cta-box">
+    <div class="cta-title">امکانات جدید را تجربه کنید</div>
+    <div class="cta-desc">هم‌اکنون می‌توانید وارد ربات شوید و از پایداری نسخه جدید بهره‌مند شوید.</div>
+    <a href="https://t.me/DropAgentXBot" class="btn" target="_blank">🤖 ورود به ربات تلگرام</a>
+  </div>
+  <div class="footer">
+    <p>DropAgentX v1.1.1 — Next-Gen Social-Commerce Engine</p>
+  </div>
+</div>
+</body>
+</html>

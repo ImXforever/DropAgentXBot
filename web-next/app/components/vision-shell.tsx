@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { allFeatures, categories, creators, featureGroups, notifications, posts as seedPosts, products } from "../lib/demo-data";
-import { NavKey, Post, Product } from "../lib/types";
+import { Category, Me, NavKey, Post, Product } from "../lib/types";
+import { engage, fetchCategories, fetchFeed, fetchMe, fetchTrending, loginWithTelegram, onBackendStatus, probeBackend, toProducts } from "../lib/api";
 
 type Toast = { text: string; kind?: "success" | "info" };
 
@@ -27,22 +28,29 @@ function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; 
   );
 }
 
-function ProductCard({ product, onBuy, compact = false }: { product: Product; onBuy: (product: Product) => void; compact?: boolean }) {
+function ProductCard({ product, onBuy, compact = false, onSaveProduct }: { product: Product; onBuy: (product: Product) => void; compact?: boolean; onSaveProduct?: (product: Product) => void }) {
   return (
     <article className={`product-card ${compact ? "product-card-compact" : ""}`}>
       <div className={`product-visual tone-${product.tone}`}>
         <span className="visual-grid" />
-        <span className="product-glyph">{product.icon}</span>
+        {product.photoUrl
+          ? <img className="product-photo" src={product.photoUrl} alt={product.title} loading="lazy" />
+          : <span className="product-glyph">{product.icon}</span>}
         {product.badge && <span className="floating-badge">{product.badge}</span>}
-        <button className="save-chip" aria-label="ذخیره محصول"><Icon>🔖</Icon></button>
+        <button
+          className={`save-chip ${product.saved ? "save-on" : ""}`}
+          aria-label="ذخیره محصول"
+          onClick={(event) => { event.stopPropagation(); onSaveProduct?.(product); }}
+        ><Icon>{product.saved ? "🔖" : "♧"}</Icon></button>
       </div>
       <div className="product-info">
         <span className="mini-label">{product.category}</span>
         <h3>{product.title}</h3>
+        {product.description && <p className="product-desc">{product.description.slice(0, 90)}{product.description.length > 90 ? "…" : ""}</p>}
         <div className="seller-row"><Avatar initials={product.seller.slice(0, 1)} tone={product.tone} size="sm" /><span>{product.seller}</span><span className="verified">✓</span></div>
         <div className="product-bottom">
           <div><strong>${product.price.toFixed(2)}</strong>{product.oldPrice && <del>${product.oldPrice.toFixed(2)}</del>}</div>
-          <span className="rating">★ {product.rating}</span>
+          <span className="rating">★ {product.rating || product.likeCount || 0}</span>
         </div>
         {!compact && <button className="buy-button" onClick={() => onBuy(product)}><span>افزودن به سبد</span><Icon>＋</Icon></button>}
       </div>
@@ -101,6 +109,8 @@ export default function VisionShell() {
   const [posts, setPosts] = useState<Post[]>(seedPosts);
   const [marketProducts, setMarketProducts] = useState<Product[]>(products);
   const [backendOnline, setBackendOnline] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+  const [liveCategories, setLiveCategories] = useState<Category[]>([]);
   const [cart, setCart] = useState<Product[]>([]);
   const [followed, setFollowed] = useState<string[]>(["@hadi"]);
   const [query, setQuery] = useState("");
@@ -115,29 +125,57 @@ export default function VisionShell() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/backend/api/pub/catalog?limit=24", { headers: { Accept: "application/json" } })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("backend")))
-      .then((payload: { items?: Array<Record<string, unknown>> }) => {
-        if (cancelled || !Array.isArray(payload.items) || payload.items.length === 0) return;
-        const tones = ["mint", "violet", "blue", "orange", "cyan", "pink", "gold", "green"];
-        const live = payload.items.map((item, index) => ({
-          id: Number(item.id ?? index + 1),
-          title: String(item.title ?? "محصول بدون عنوان"),
-          category: String(item.category ?? "عمومی"),
-          price: Number(item.price_usd ?? Number(item.price_credits ?? 0) / 1000),
-          rating: Number(item.stars ?? 0),
-          sales: Number(item.sales_count ?? 0),
-          seller: String(item.creator_name ?? "سازنده DropAgentX"),
-          sellerHandle: String(item.creator_username ? `@${item.creator_username}` : "@creator"),
-          icon: ["✦", "◈", "⌘", "▶", "⚡", "✺", "₿", "▦"][index % 8],
-          tone: tones[index % tones.length],
-          badge: index === 0 ? "از API" : undefined,
-        } satisfies Product));
-        setMarketProducts(live);
-        setBackendOnline(true);
-      })
-      .catch(() => { if (!cancelled) setBackendOnline(false); });
-    return () => { cancelled = true; };
+
+    const boot = async () => {
+      // 1) Auth: Telegram initData → /api/app/auth → Bearer token (in-memory).
+      const authed = await loginWithTelegram();
+      if (cancelled) return;
+      if (authed) {
+        setMe(authed);
+      } else {
+        // Cookie-based session (backend sets httponly `happ` cookie).
+        const existing = await fetchMe();
+        if (cancelled) return;
+        if (existing) setMe(existing);
+        else await probeBackend(); // anonymous probe for the LIVE badge
+      }
+
+      // 2) Real catalog into shop/explore (trending → fresh feed fallback).
+      if (!cancelled) {
+        try {
+          const [trending, feed] = await Promise.all([
+            fetchTrending(24),
+            fetchFeed("foryou", "all", 0),
+          ]);
+          const merged = toProducts(trending.items?.length ? trending.items : feed.items);
+          if (merged.length) setMarketProducts(merged);
+        } catch {
+          /* backend down — keep demo products */
+        }
+      }
+
+      // 3) Real category chips with live counts.
+      if (!cancelled) {
+        try {
+          const cats = await fetchCategories();
+          if (cats.length) setLiveCategories(cats);
+        } catch {
+          /* keep demo categories */
+        }
+      }
+    };
+
+    boot();
+
+    // Mirror the API client's online state into the shell's badge.
+    const unsubscribe = onBackendStatus((online) => {
+      if (!cancelled) setBackendOnline(online);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const showToast = (text: string, kind: Toast["kind"] = "success") => {
@@ -157,6 +195,27 @@ export default function VisionShell() {
   const toggleSave = (id: number) => {
     setPosts((current) => current.map((post) => post.id === id ? { ...post, saved: !post.saved } : post));
     showToast("لیست ذخیره‌ها به‌روزرسانی شد", "info");
+  };
+
+  const toggleSaveProduct = (product: Product) => {
+    const saving = !product.saved;
+    setMarketProducts((current) => current.map((item) =>
+      item.id === product.id ? { ...item, saved: saving } : item));
+    if (backendOnline) {
+      engage(product.id, "save")
+        .then((on) => {
+          if (!on) {
+            // Toggled off server-side implies the save was removed; revert.
+            setMarketProducts((current) => current.map((item) =>
+              item.id === product.id ? { ...item, saved: !saving } : item));
+          }
+        })
+        .catch(() => {
+          setMarketProducts((current) => current.map((item) =>
+            item.id === product.id ? { ...item, saved: !saving } : item));
+        });
+    }
+    showToast(saving ? "به ذخیره‌ها اضافه شد" : "از ذخیره‌ها حذف شد", "info");
   };
 
   const doFollow = (handle: string) => {
@@ -187,7 +246,7 @@ export default function VisionShell() {
         <div className="brand" onClick={() => setActive("home")} role="button" tabIndex={0}>
           <div className="brand-mark"><span>✦</span></div><div><strong>DROP<span>AGENT</span>X</strong><small>social commerce OS</small></div>
         </div>
-        <div className="profile-mini"><Avatar initials="ک" tone="mint" /><div><strong>کیامد مکس</strong><span>@kiamad · Creator</span></div><button aria-label="تنظیمات" onClick={() => setActive("settings")}>⚙</button></div>
+        <div className="profile-mini"><Avatar initials={(me?.name || "ک").charAt(0)} tone="mint" /><div><strong>{me?.name ?? "کیامد مکس"}</strong><span>{me?.username ? `@${me.username}` : "@kiamad"} · {me?.role === "admin" ? "Admin" : "Creator"}</span></div><button aria-label="تنظیمات" onClick={() => setActive("settings")}>⚙</button></div>
         <nav className="main-nav" aria-label="ناوبری اصلی">
           <span className="nav-label">Workspace</span>
           {navItems.map((item) => <button key={item.key} className={active === item.key ? "active" : ""} onClick={() => setActive(item.key)}><Icon>{item.icon}</Icon><span>{item.label}</span>{item.key === "activity" && unread > 0 && <b className="nav-badge">{unread}</b>}</button>)}
@@ -202,20 +261,20 @@ export default function VisionShell() {
           <div className="mobile-brand"><div className="brand-mark"><span>✦</span></div><strong>DROP<span>AGENT</span>X</strong></div>
           <div className="mobile-page-title">{pageTitle[active]}</div>
           <label className="global-search"><Icon>⌕</Icon><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && setActive("explore")} placeholder="جستجو در پست‌ها، محصولات، سازنده‌ها..." /><kbd>⌘ K</kbd></label>
-          <div className="top-actions"><span className={`api-status ${backendOnline ? "online" : "demo"}`} title={backendOnline ? "اتصال به Backend برقرار است" : "حالت Demo فعال است"}><i />{backendOnline ? "LIVE" : "DEMO"}</span><button className="icon-button" aria-label="تغییر تم" onClick={() => setDarkMode((value) => !value)}>{darkMode ? "☼" : "☾"}</button><button className="icon-button notification-button" aria-label="اعلان‌ها" onClick={() => setActive("activity")}>♢{unread > 0 && <i />}</button><button className="top-avatar" onClick={() => setActive("profile")}><Avatar initials="ک" tone="mint" size="sm" /></button></div>
+          <div className="top-actions"><span className={`api-status ${backendOnline ? "online" : "demo"}`} title={backendOnline ? "اتصال به Backend برقرار است" : "حالت Demo فعال است"}><i />{backendOnline ? "LIVE" : "DEMO"}</span>{!backendOnline && !me ? <button className="login-button" onClick={() => { if (window.Telegram?.WebApp) window.Telegram.WebApp.openTelegramLink?.("https://t.me/DropAgentXBot"); else showToast("از داخل تلگرام باز کن", "info"); }}>اتصال تلگرام</button> : <span className="credits-chip" title="کردیت حساب">⚡ <b>{me?.credits ?? 0}</b></span>}<button className="icon-button" aria-label="تغییر تم" onClick={() => setDarkMode((value) => !value)}>{darkMode ? "☼" : "☾"}</button><button className="icon-button notification-button" aria-label="اعلان‌ها" onClick={() => setActive("activity")}>♢{unread > 0 && <i />}</button><button className="top-avatar" onClick={() => setActive("profile")}><Avatar initials={(me?.name || "ک").charAt(0)} tone="mint" size="sm" /></button></div>
         </header>
 
         <div className="page-scroll">
           {active === "home" && <HomeView posts={posts} onLike={toggleLike} onSave={toggleSave} onComment={() => showToast("بخش گفتگو آماده است", "info")} onBuy={addToCart} composer={composer} setComposer={setComposer} onSubmit={submitPost} setActive={setActive} />}
-          {active === "explore" && <ExploreView query={query} products={filteredProducts} onBuy={addToCart} followed={followed} onFollow={doFollow} setActive={setActive} />}
-          {active === "shop" && <ShopView products={filteredProducts} onBuy={addToCart} query={query} setQuery={setQuery} />}
+          {active === "explore" && <ExploreView query={query} products={filteredProducts} onBuy={addToCart} onSaveProduct={toggleSaveProduct} followed={followed} onFollow={doFollow} setActive={setActive} />}
+          {active === "shop" && <ShopView products={filteredProducts} categories={liveCategories} onBuy={addToCart} onSaveProduct={toggleSaveProduct} query={query} setQuery={setQuery} />}
           {active === "create" && <CreateView mode={composerMode} setMode={setComposerMode} composer={composer} setComposer={setComposer} onSubmit={submitPost} showToast={showToast} />}
           {active === "activity" && <ActivityView onRead={() => showToast("همه اعلان‌ها خوانده شدند", "info")} />}
-          {active === "profile" && <ProfileView tab={profileTab} setTab={setProfileTab} posts={posts} products={products} onBuy={addToCart} onLike={toggleLike} onSave={toggleSave} onComment={() => showToast("گفتگو آماده است", "info")} setActive={setActive} />}
+          {active === "profile" && <ProfileView tab={profileTab} setTab={setProfileTab} posts={posts} products={products} me={me} onBuy={addToCart} onSaveProduct={toggleSaveProduct} onLike={toggleLike} onSave={toggleSave} onComment={() => showToast("گفتگو آماده است", "info")} setActive={setActive} />}
           {active === "messages" && <MessagesView showToast={showToast} />}
-          {active === "wallet" && <WalletView showToast={showToast} />}
+          {active === "wallet" && <WalletView showToast={showToast} me={me} />}
           {active === "orders" && <OrdersView />}
-          {active === "saved" && <SavedView posts={savedPosts} products={products.slice(0, 3)} onBuy={addToCart} onLike={toggleLike} onSave={toggleSave} onComment={() => showToast("گفتگو آماده است", "info")} />}
+          {active === "saved" && <SavedView posts={savedPosts} products={products.slice(0, 3)} onBuy={addToCart} onSaveProduct={toggleSaveProduct} onLike={toggleLike} onSave={toggleSave} onComment={() => showToast("گفتگو آماده است", "info")} />}
           {active === "collections" && <CollectionsView showToast={showToast} />}
           {active === "analytics" && <AnalyticsView />}
           {active === "settings" && <SettingsView darkMode={darkMode} setDarkMode={setDarkMode} compactMode={compactMode} setCompactMode={setCompactMode} showToast={showToast} />}
@@ -242,14 +301,16 @@ function HomeView({ posts, onLike, onSave, onComment, onBuy, composer, setCompos
   </>;
 }
 
-function ExploreView({ query, products, onBuy, followed, onFollow, setActive }: { query: string; products: Product[]; onBuy: (product: Product) => void; followed: string[]; onFollow: (handle: string) => void; setActive: (key: NavKey) => void }) {
-  return <><div className="page-heading"><div><span className="eyebrow">DISCOVER SOMETHING NEW</span><h1>اکسپلور <span>∞</span></h1><p>{query ? `نتایج جستجو برای «${query}»` : "ایده‌ها، سازنده‌ها و محصولاتی که ارزش کشف کردن دارند."}</p></div><button className="outline-button" onClick={() => setActive("features")}>نمایش ۱۰۰ قابلیت <span>✦</span></button></div><div className="trend-banner"><div><span className="eyebrow">TRENDING NOW · ۲ ساعت اخیر</span><h2>Creator commerce در حال تغییر بازیه.</h2><p>+۴۷٪ رشد تعامل در محتوای فروش‌محور</p></div><div className="trend-bars"><i /><i /><i /><i /><i /><i /><i /></div><span className="trend-score">+47<span>%</span></span></div><SectionTitle eyebrow="TRENDING TOPICS" title="موضوعات داغ" action="همه موضوعات" /><div className="topic-grid">{["هوش مصنوعی", "Creator Economy", "طراحی محصول", "اتوماسیون", "کریپتو", "ساختن در تلگرام"].map((topic, index) => <button key={topic} className={`topic-card topic-${index}`} onClick={() => setActive("shop")}><span>{["✦", "◈", "◌", "⚡", "₿", "⌘"][index]}</span><strong>{topic}</strong><small>{["۲۴.۸K پست", "۱۷.۲K پست", "۹.۶K پست", "۸.۴K پست", "۶.۱K پست", "۴.۹K پست"][index]}</small><em>↗</em></button>)}</div><SectionTitle eyebrow="POPULAR PRODUCTS" title="محصولات پیشنهادی" action="رفتن به مارکت" onAction={() => setActive("shop")} /><div className="product-grid">{products.slice(0, 4).map((product) => <ProductCard product={product} onBuy={onBuy} key={product.id} />)}</div><SectionTitle eyebrow="CREATORS TO WATCH" title="سازنده‌های محبوب" action="مشاهده همه" /><div className="creator-grid">{creators.map((creator) => <div className="creator-card" key={creator.handle}><div className={`creator-cover tone-${creator.tone}`} /><Avatar initials={creator.initials} tone={creator.tone} size="lg" /><div className="creator-card-content"><strong>{creator.name} <span className="verified">✓</span></strong><span>{creator.handle}</span><div className="creator-stats"><span><b>{creator.followers}</b> دنبال‌کننده</span><span><b>{creator.sales}</b> فروش</span></div><button className={followed.includes(creator.handle) ? "following-button" : "follow-button"} onClick={() => onFollow(creator.handle)}>{followed.includes(creator.handle) ? "دنبال می‌کنی ✓" : "دنبال کردن ＋"}</button></div></div>)}</div></>;
+function ExploreView({ query, products, onBuy, onSaveProduct, followed, onFollow, setActive }: { query: string; products: Product[]; onBuy: (product: Product) => void; onSaveProduct?: (product: Product) => void; followed: string[]; onFollow: (handle: string) => void; setActive: (key: NavKey) => void }) {
+  return <><div className="page-heading"><div><span className="eyebrow">DISCOVER SOMETHING NEW</span><h1>اکسپلور <span>∞</span></h1><p>{query ? `نتایج جستجو برای «${query}»` : "ایده‌ها، سازنده‌ها و محصولاتی که ارزش کشف کردن دارند."}</p></div><button className="outline-button" onClick={() => setActive("features")}>نمایش ۱۰۰ قابلیت <span>✦</span></button></div><div className="trend-banner"><div><span className="eyebrow">TRENDING NOW · ۲ ساعت اخیر</span><h2>Creator commerce در حال تغییر بازیه.</h2><p>+۴۷٪ رشد تعامل در محتوای فروش‌محور</p></div><div className="trend-bars"><i /><i /><i /><i /><i /><i /><i /></div><span className="trend-score">+47<span>%</span></span></div><SectionTitle eyebrow="TRENDING TOPICS" title="موضوعات داغ" action="همه موضوعات" /><div className="topic-grid">{["هوش مصنوعی", "Creator Economy", "طراحی محصول", "اتوماسیون", "کریپتو", "ساختن در تلگرام"].map((topic, index) => <button key={topic} className={`topic-card topic-${index}`} onClick={() => setActive("shop")}><span>{["✦", "◈", "◌", "⚡", "₿", "⌘"][index]}</span><strong>{topic}</strong><small>{["۲۴.۸K پست", "۱۷.۲K پست", "۹.۶K پست", "۸.۴K پست", "۶.۱K پست", "۴.۹K پست"][index]}</small><em>↗</em></button>)}</div><SectionTitle eyebrow="POPULAR PRODUCTS" title="محصولات پیشنهادی" action="رفتن به مارکت" onAction={() => setActive("shop")} /><div className="product-grid">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} onSaveProduct={onSaveProduct} />)}</div><SectionTitle eyebrow="CREATORS TO WATCH" title="سازنده‌های محبوب" action="مشاهده همه" /><div className="creator-grid">{creators.map((creator) => <div className="creator-card" key={creator.handle}><div className={`creator-cover tone-${creator.tone}`} /><Avatar initials={creator.initials} tone={creator.tone} size="lg" /><div className="creator-card-content"><strong>{creator.name} <span className="verified">✓</span></strong><span>{creator.handle}</span><div className="creator-stats"><span><b>{creator.followers}</b> دنبال‌کننده</span><span><b>{creator.sales}</b> فروش</span></div><button className={followed.includes(creator.handle) ? "following-button" : "follow-button"} onClick={() => onFollow(creator.handle)}>{followed.includes(creator.handle) ? "دنبال می‌کنی ✓" : "دنبال کردن ＋"}</button></div></div>)}</div></>;
 }
 
-function ShopView({ products, onBuy, query, setQuery }: { products: Product[]; onBuy: (product: Product) => void; query: string; setQuery: (value: string) => void }) {
+function ShopView({ products, categories, onBuy, onSaveProduct, query, setQuery }: { products: Product[]; categories: Category[]; onBuy: (product: Product) => void; onSaveProduct?: (product: Product) => void; query: string; setQuery: (value: string) => void }) {
   const [selectedCategory, setSelectedCategory] = useState("همه");
-  const visible = products.filter((product) => selectedCategory === "همه" || product.category === selectedCategory);
-  return <><div className="page-heading shop-heading"><div><span className="eyebrow">THE CREATOR MARKET</span><h1>بازار <span>ایده‌ها.</span></h1><p>چیزهایی که سازنده‌ها برای سازنده‌ها ساخته‌اند.</p></div><div className="shop-actions"><button className="outline-button">▣ فروشگاه من</button><button className="primary-button">＋ محصول جدید</button></div></div><div className="shop-hero"><div><span className="hero-kicker">DROP OF THE WEEK</span><h2>آینده را<br /><strong>همین امروز بساز.</strong></h2><p>۱۲ محصول منتخب از سازنده‌های مستقل</p><button className="light-button">کشف مجموعه <span>↗</span></button></div><div className="hero-orbit"><span>✦</span><span>◈</span><span>⚡</span><b>DROP<br />01</b></div></div><div className="shop-controls"><div className="category-pills">{categories.map((category) => <button key={category} className={selectedCategory === category ? "active" : ""} onClick={() => setSelectedCategory(category)}>{category}</button>)}</div><label className="shop-search">⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جستجوی مارکت" /></label></div><div className="shop-meta"><strong>{visible.length * 18 + 72} محصول</strong><span>مرتب‌سازی: <button>مرتبط‌ترین⌄</button></span></div><div className="product-grid product-grid-large">{visible.map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} />)}</div></>;
+  const pills = [{ key: "all", fa: "همه" }, ...categories];
+  const selected = pills.find((pill) => pill.fa === selectedCategory) ?? pills[0];
+  const visible = products.filter((product) => selected.key === "all" || product.category === selected.key || product.category === selected.fa);
+  return <><div className="page-heading shop-heading"><div><span className="eyebrow">THE CREATOR MARKET</span><h1>بازار <span>ایده‌ها.</span></h1><p>چیزهایی که سازنده‌ها برای سازنده‌ها ساخته‌اند.</p></div><div className="shop-actions"><button className="outline-button">▣ فروشگاه من</button><button className="primary-button">＋ محصول جدید</button></div></div><div className="shop-hero"><div><span className="hero-kicker">DROP OF THE WEEK</span><h2>آینده را<br /><strong>همین امروز بساز.</strong></h2><p>۱۲ محصول منتخب از سازنده‌های مستقل</p><button className="light-button">کشف مجموعه <span>↗</span></button></div><div className="hero-orbit"><span>✦</span><span>◈</span><span>⚡</span><b>DROP<br />01</b></div></div><div className="shop-controls"><div className="category-pills">{pills.map((pill) => <button key={pill.key} className={selectedCategory === pill.fa ? "active" : ""} onClick={() => setSelectedCategory(pill.fa)}>{pill.fa}</button>)}</div><label className="shop-search">⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جستجوی مارکت" /></label></div><div className="shop-meta"><strong>{visible.length} محصول</strong><span>مرتب‌سازی: <button>مرتبط‌ترین⌄</button></span></div><div className="product-grid product-grid-large">{visible.map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} onSaveProduct={onSaveProduct} />)}</div></>;
 }
 
 function CreateView({ mode, setMode, composer, setComposer, onSubmit, showToast }: { mode: string; setMode: (value: string) => void; composer: string; setComposer: (value: string) => void; onSubmit: (event: FormEvent) => void; showToast: (text: string, kind?: Toast["kind"]) => void }) {
@@ -261,9 +322,9 @@ function ActivityView({ onRead }: { onRead: () => void }) {
   return <><div className="page-heading"><div><span className="eyebrow">YOUR ACTIVITY</span><h1>اتفاق‌ها <span>اینجا هستند.</span></h1><p>تعامل‌ها، فروش‌ها و خبرهای مهم را از دست نده.</p></div><button className="text-button" onClick={onRead}>خوانده‌شدن همه ✓</button></div><div className="activity-summary"><div><span>تعامل این هفته</span><strong>+۲۸٪</strong><small>در مقایسه با هفته قبل</small></div><div><span>فروش جدید</span><strong>۱۲</strong><small>از ۳ محصول</small></div><div><span>دنبال‌کننده جدید</span><strong>+۱۸۴</strong><small>رشد ارگانیک</small></div></div><div className="notification-list">{notifications.map((item) => <div className={`notification-item ${item.unread ? "unread" : ""}`} key={item.id}><div className={`notification-icon notification-${item.type}`}>{item.icon}</div><div><strong>{item.title}</strong><p>{item.text}</p><span>{item.time}</span></div>{item.unread && <i className="unread-dot" />}</div>)}</div></>;
 }
 
-function ProfileView({ tab, setTab, posts, products, onBuy, onLike, onSave, onComment, setActive }: { tab: string; setTab: (value: string) => void; posts: Post[]; products: Product[]; onBuy: (product: Product) => void; onLike: (id: number) => void; onSave: (id: number) => void; onComment: () => void; setActive: (key: NavKey) => void }) {
+function ProfileView({ tab, setTab, posts, products, me, onBuy, onSaveProduct, onLike, onSave, onComment, setActive }: { tab: string; setTab: (value: string) => void; posts: Post[]; products: Product[]; me: Me | null; onBuy: (product: Product) => void; onSaveProduct?: (product: Product) => void; onLike: (id: number) => void; onSave: (id: number) => void; onComment: () => void; setActive: (key: NavKey) => void }) {
   const tabs = ["پست‌ها", "پاسخ‌ها", "رسانه", "محصولات", "مجموعه‌ها"];
-  return <><div className="profile-cover tone-mint"><div className="cover-noise" /><button>✎ ویرایش کاور</button></div><div className="profile-hero"><Avatar initials="ک" tone="mint" size="lg" /><button className="outline-button profile-edit">ویرایش پروفایل</button><div className="profile-name"><h1>کیامد مکس <span className="verified">✓</span></h1><span>@kiamad · Builder, creator & market maker</span></div><p>در حال ساختن جایی که هر ایده می‌تونه یک کسب‌وکار باشه. 🟢</p><div className="profile-links"><span>◉ Lelystad, NL</span><span>↗ dropagentx.com</span><span>◷ عضو از ۲۰۲۴</span></div><div className="profile-numbers"><span><b>۲٫۴K</b> دنبال‌کننده</span><span><b>۱۸۹</b> دنبال‌شونده</span><span><b>۴۲</b> محصول</span><span><b>$۸٫۴K</b> درآمد</span></div></div><div className="profile-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</div>{tab === "محصولات" ? <><SectionTitle eyebrow="MY STORE" title="محصولات من" action="مدیریت فروشگاه" onAction={() => setActive("shop")} /><div className="product-grid">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} />)}</div></> : tab === "مجموعه‌ها" ? <CollectionsView showToast={() => undefined} /> : <div className="feed-list profile-feed">{posts.slice(0, 2).map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onSave={() => onSave(post.id)} onComment={onComment} onBuy={onBuy} />)}</div>}</>;
+  return <><div className="profile-cover tone-mint"><div className="cover-noise" /><button>✎ ویرایش کاور</button></div><div className="profile-hero"><Avatar initials={(me?.name || "ک").charAt(0)} tone="mint" size="lg" /><button className="outline-button profile-edit">ویرایش پروفایل</button><div className="profile-name"><h1>{me?.name ?? "کیامد مکس"} <span className="verified">✓</span></h1><span>{me?.username ? `@${me.username}` : "@kiamad"} · {me?.role === "admin" ? "Admin" : "Builder, creator & market maker"}</span></div><p>در حال ساختن جایی که هر ایده می‌تونه یک کسب‌وکار باشه. 🟢</p><div className="profile-links"><span>◉ Lelystad, NL</span><span>↗ dropagentx.com</span><span>◷ عضو از ۲۰۲۴</span></div><div className="profile-numbers"><span><b>۲٫۴K</b> دنبال‌کننده</span><span><b>۱۸۹</b> دنبال‌شونده</span><span><b>۴۲</b> محصول</span><span><b>$۸٫۴K</b> درآمد</span></div></div><div className="profile-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</div>{tab === "محصولات" ? <><SectionTitle eyebrow="MY STORE" title="محصولات من" action="مدیریت فروشگاه" onAction={() => setActive("shop")} /><div className="product-grid">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} onSaveProduct={onSaveProduct} />)}</div></> : tab === "مجموعه‌ها" ? <CollectionsView showToast={() => undefined} /> : <div className="feed-list profile-feed">{posts.slice(0, 2).map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onSave={() => onSave(post.id)} onComment={onComment} onBuy={onBuy} />)}</div>}</>;
 }
 
 function MessagesView({ showToast }: { showToast: (text: string, kind?: Toast["kind"]) => void }) {
@@ -271,15 +332,15 @@ function MessagesView({ showToast }: { showToast: (text: string, kind?: Toast["k
   return <><div className="page-heading"><div><span className="eyebrow">DIRECT MESSAGES</span><h1>گفتگوها <span>زنده‌اند.</span></h1><p>با سازنده‌ها، مشتری‌ها و هم‌تیمی‌ها در ارتباط باش.</p></div><button className="primary-button" onClick={() => showToast("گفتگوی جدید آماده است", "info")}>＋ گفتگوی جدید</button></div><div className="messages-layout"><div className="chat-list"><label className="chat-search">⌕ <input placeholder="جستجوی گفتگو" /></label>{chats.map((chat) => <button key={chat.name} className={`chat-preview ${chat.active ? "active" : ""}`}><Avatar initials={chat.initials} tone={chat.tone} /><span><strong>{chat.name}</strong><small>{chat.preview}</small></span><time>{chat.time}</time></button>)}</div><div className="chat-window"><div className="chat-window-head"><Avatar initials="س" tone="violet" /><div><strong>سارا محمدی</strong><span><i /> فعال همین حالا</span></div><button>•••</button></div><div className="chat-messages"><div className="message message-them">سلام! پکیج AI Creator Launch Kit رو دیدم. برای یک برند شخصی مناسبه؟<small>۱۲:۴۱</small></div><div className="message message-me">قطعاً. برای لانچ اولت تمام قالب‌های لازم رو داره؛ از برنامه محتوا تا صفحه فروش.</div><div className="shared-product tone-mint"><span>✦</span><div><small>محصول به اشتراک‌گذاشته‌شده</small><strong>AI Creator Launch Kit</strong><b>$12.50</b></div><span>↗</span></div></div><form className="chat-input" onSubmit={(event) => { event.preventDefault(); showToast("پیام ارسال شد"); }}><button type="button">＋</button><input placeholder="پیامت را بنویس..." /><button className="send-message" type="submit">↗</button></form></div></div></>;
 }
 
-function WalletView({ showToast }: { showToast: (text: string, kind?: Toast["kind"]) => void }) {
-  return <><div className="page-heading"><div><span className="eyebrow">CREATOR WALLET</span><h1>ارزش <span>در جریان.</span></h1><p>درآمد، کمیسیون و پرداخت‌هایت را در یک نگاه ببین.</p></div><button className="outline-button" onClick={() => showToast("درخواست برداشت ثبت می‌شود", "info")}>برداشت وجه ↗</button></div><div className="wallet-card"><div className="wallet-orb">✦</div><span className="eyebrow">AVAILABLE BALANCE</span><strong>$۸٬۴۲۶<span>.۳۸</span></strong><div className="wallet-card-bottom"><span>≈ ۸٬۴۲۶ کردیت</span><span className="growth">↗ +۱۲٫۸٪ این ماه</span></div></div><div className="wallet-metrics"><Metric label="درآمد این ماه" value="$۲٬۱۸۴" change="+۲۸٪" /><Metric label="در انتظار تسویه" value="$۳۴۲" change="۱۲ سفارش" /><Metric label="درآمد افیلیت" value="$۶۸۶" change="+۱۶٪" /></div><SectionTitle eyebrow="LEDGER" title="آخرین تراکنش‌ها" action="مشاهده همه" /><div className="transaction-list">{[["فروش محصول", "AI Creator Launch Kit", "+$۱۲٫۵۰", "امروز · ۱۲:۴۱", "plus", "🛒"], ["کمیسیون افیلیت", "از خرید @hadi", "+$۲٫۸۰", "امروز · ۰۹:۱۸", "plus", "↗"], ["تسویه بانکی", "حساب **** ۴۲۸۱", "−$۴۵۰٫۰۰", "۲۵ اوت", "minus", "↓"], ["فروش محصول", "Minimal Brand System", "+$۱۶٫۰۰", "۲۴ اوت", "plus", "🛒"]].map((row) => <div className="transaction-row" key={row[1]}><span className={`transaction-icon ${row[4]}`}>{row[5]}</span><div><strong>{row[0]}</strong><small>{row[1]}</small></div><time>{row[3]}</time><b className={row[4]}>{row[2]}</b></div>)}</div></>;
+function WalletView({ showToast, me }: { showToast: (text: string, kind?: Toast["kind"]) => void; me: Me | null }) {
+  return <><div className="page-heading"><div><span className="eyebrow">CREATOR WALLET</span><h1>ارزش <span>در جریان.</span></h1><p>درآمد، کمیسیون و پرداخت‌هایت را در یک نگاه ببین.</p></div><button className="outline-button" onClick={() => showToast("درخواست برداشت ثبت می‌شود", "info")}>برداشت وجه ↗</button></div><div className="wallet-card"><div className="wallet-orb">✦</div><span className="eyebrow">AVAILABLE BALANCE</span>{me ? <strong>{me.credits.toLocaleString("fa-IR")}<span> ا</span></strong> : <strong>$۸٬۴۲۶<span>.۳۸</span></strong>}<div className="wallet-card-bottom">{me ? <span>≈ {me.credits.toLocaleString("fa-IR")} کردیت</span> : <span>≈ ۸٬۴۲۶ کردیت</span>}<span className="growth">↗ +۱۲٫۸٪ این ماه</span></div></div><div className="wallet-metrics"><Metric label="درآمد این ماه" value="$۲٬۱۸۴" change="+۲۸٪" /><Metric label="در انتظار تسویه" value="$۳۴۲" change="۱۲ سفارش" /><Metric label="درآمد افیلیت" value="$۶۸۶" change="+۱۶٪" /></div><SectionTitle eyebrow="LEDGER" title="آخرین تراکنش‌ها" action="مشاهده همه" /><div className="transaction-list">{[["فروش محصول", "AI Creator Launch Kit", "+$۱۲٫۵۰", "امروز · ۱۲:۴۱", "plus", "🛒"], ["کمیسیون افیلیت", "از خرید @hadi", "+$۲٫۸۰", "امروز · ۰۹:۱۸", "plus", "↗"], ["تسویه بانکی", "حساب **** ۴۲۸۱", "−$۴۵۰٫۰۰", "۲۵ اوت", "minus", "↓"], ["فروش محصول", "Minimal Brand System", "+$۱۶٫۰۰", "۲۴ اوت", "plus", "🛒"]].map((row) => <div className="transaction-row" key={row[1]}><span className={`transaction-icon ${row[4]}`}>{row[5]}</span><div><strong>{row[0]}</strong><small>{row[1]}</small></div><time>{row[3]}</time><b className={row[4]}>{row[2]}</b></div>)}</div></>;
 }
 
 function Metric({ label, value, change }: { label: string; value: string; change: string }) { return <div className="metric-card"><span>{label}</span><strong>{value}</strong><small>↗ {change}</small></div>; }
 
 function OrdersView() { return <><div className="page-heading"><div><span className="eyebrow">ORDER CENTER</span><h1>سفارش‌ها <span>مرتب‌اند.</span></h1><p>وضعیت خریدها و تحویل محصولاتت را مدیریت کن.</p></div><button className="outline-button">▣ فروشگاه من</button></div><div className="order-tabs"><button className="active">همه <b>۸۳</b></button><button>در انتظار <b>۷</b></button><button>تکمیل‌شده <b>۷۲</b></button><button>لغوشده <b>۴</b></button></div><div className="orders-table"><div className="orders-header"><span>سفارش</span><span>محصول</span><span>خریدار</span><span>مبلغ</span><span>وضعیت</span><span>تاریخ</span></div>{[["#DGX-2048", "AI Creator Launch Kit", "@sara", "$۱۲٫۵۰", "تکمیل‌شده", "امروز"], ["#DGX-2047", "Neon Commerce UI Pack", "@mohsen", "$۱۸٫۰۰", "در انتظار", "امروز"], ["#DGX-2046", "Prompt Engineering Mastery", "@roya", "$۹٫۹۰", "تکمیل‌شده", "دیروز"], ["#DGX-2045", "Persian Reels Templates", "@nima", "$۷٫۵۰", "تکمیل‌شده", "۲۵ اوت"], ["#DGX-2044", "Solopreneur Automation", "@atlas", "$۲۹٫۰۰", "Refund", "۲۵ اوت"]].map((order) => <div className="orders-row" key={order[0]}><strong>{order[0]}</strong><span>{order[1]}</span><span>{order[2]}</span><b>{order[3]}</b><span className={`status status-${order[4] === "تکمیل‌شده" ? "done" : order[4] === "در انتظار" ? "pending" : "refund"}`}>{order[4]}</span><time>{order[5]}</time></div>)}</div></>; }
 
-function SavedView({ posts, products, onBuy, onLike, onSave, onComment }: { posts: Post[]; products: Product[]; onBuy: (product: Product) => void; onLike: (id: number) => void; onSave: (id: number) => void; onComment: () => void }) { return <><div className="page-heading"><div><span className="eyebrow">YOUR LIBRARY</span><h1>چیزهای <span>خوب ذخیره‌شده.</span></h1><p>الهام‌ها و محصولاتی که نمی‌خواهی از دست بدهی.</p></div><button className="primary-button">＋ پوشه جدید</button></div><div className="saved-folders"><button className="active"><span>♧</span><b>همه ذخیره‌ها</b><small>۲۴ مورد</small></button><button><span>✦</span><b>ایده‌های AI</b><small>۸ مورد</small></button><button><span>◈</span><b>برای خرید</b><small>۶ مورد</small></button><button><span>◌</span><b>الهام طراحی</b><small>۱۰ مورد</small></button></div><SectionTitle eyebrow="RECENTLY SAVED" title="ذخیره‌های اخیر" /><div className="saved-layout"><div className="feed-list">{posts.length ? posts.map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onSave={() => onSave(post.id)} onComment={onComment} onBuy={onBuy} />) : <div className="empty-state">هنوز پستی ذخیره نکرده‌ای.</div>}</div><div className="saved-products"><h3>محصولات ذخیره‌شده</h3>{products.map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} compact />)}</div></div></>; }
+function SavedView({ posts, products, onBuy, onSaveProduct, onLike, onSave, onComment }: { posts: Post[]; products: Product[]; onBuy: (product: Product) => void; onSaveProduct?: (product: Product) => void; onLike: (id: number) => void; onSave: (id: number) => void; onComment: () => void }) { return <><div className="page-heading"><div><span className="eyebrow">YOUR LIBRARY</span><h1>چیزهای <span>خوب ذخیره‌شده.</span></h1><p>الهام‌ها و محصولاتی که نمی‌خواهی از دست بدهی.</p></div><button className="primary-button">＋ پوشه جدید</button></div><div className="saved-folders"><button className="active"><span>♧</span><b>همه ذخیره‌ها</b><small>۲۴ مورد</small></button><button><span>✦</span><b>ایده‌های AI</b><small>۸ مورد</small></button><button><span>◈</span><b>برای خرید</b><small>۶ مورد</small></button><button><span>◌</span><b>الهام طراحی</b><small>۱۰ مورد</small></button></div><SectionTitle eyebrow="RECENTLY SAVED" title="ذخیره‌های اخیر" /><div className="saved-layout"><div className="feed-list">{posts.length ? posts.map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onSave={() => onSave(post.id)} onComment={onComment} onBuy={onBuy} />) : <div className="empty-state">هنوز پستی ذخیره نکرده‌ای.</div>}</div><div className="saved-products"><h3>محصولات ذخیره‌شده</h3>{products.map((product) => <ProductCard key={product.id} product={product} onBuy={onBuy} onSaveProduct={onSaveProduct} compact />)}</div></div></>; }
 
 function CollectionsView({ showToast }: { showToast: (text: string, kind?: Toast["kind"]) => void }) { return <><div className="collection-grid">{[{ name: "AI Stack", count: "۱۲ محصول", icon: "✦", tone: "mint" }, { name: "Launch Inspiration", count: "۲۸ پست", icon: "◈", tone: "violet" }, { name: "For Later", count: "۰ آیتم", icon: "＋", tone: "blue" }].map((collection) => <button className="collection-card" key={collection.name} onClick={() => showToast("مجموعه باز شد", "info")}><div className={`collection-art tone-${collection.tone}`}><span>{collection.icon}</span></div><strong>{collection.name}</strong><small>{collection.count}</small></button>)}</div><button className="new-collection" onClick={() => showToast("مجموعه جدید ساخته شد")}>＋ ساخت مجموعه جدید</button></>; }
 

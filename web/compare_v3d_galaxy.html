@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚖️ مقایسه DropAgentX v1.1.1 با v3.0.0 — کهکشان زنده سه‌بعدی</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --txt:#f4f7f5; --dim:#a9b4c8; --gold:#f5c451; --green:#00FF88;
+    --blue:#38bdf8; --red:#f87171; --violet:#a78bfa; --cyan:#22d3ee;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{
+    font-family:'Vazirmatn',sans-serif; line-height:1.9; color:var(--txt);
+    overflow-x:hidden; background:#03040a;
+  }
+  #galaxy{ position:fixed; inset:0; width:100%; height:100%; display:block; z-index:0; }
+  .stars-fallback{ position:fixed; inset:0; z-index:-1; background:radial-gradient(1200px 700px at 50% -10%, #101a3a 0%, #03040a 70%); }
+  /* 3D content layer */
+  .layer{ position:relative; z-index:2; }
+  .wrap{ max-width:1000px; margin:0 auto; padding:34px 18px 80px; }
+  .hero{
+    position:relative; text-align:center; margin-bottom:30px;
+    background:rgba(10,14,28,.55); border:1px solid rgba(120,170,255,.25);
+    border-radius:22px; padding:34px 24px; backdrop-filter:blur(12px);
+    box-shadow:0 0 60px rgba(56,189,248,.18), inset 0 1px 0 rgba(255,255,255,.08);
+    overflow:hidden;
+  }
+  .hero::after{ content:''; position:absolute; inset:-2px; border-radius:22px;
+    background:linear-gradient(120deg,transparent 20%, rgba(56,189,248,.25) 50%, transparent 80%);
+    animation:shimmer 6s linear infinite; pointer-events:none; }
+  @keyframes shimmer{ 0%{ transform:translateX(-100%);} 100%{ transform:translateX(100%);} }
+  h1{ font-size:clamp(22px,4vw,32px); font-weight:900; letter-spacing:.5px; margin-bottom:8px;
+    background:linear-gradient(90deg,var(--gold),var(--green),var(--blue),var(--violet));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .hsub{ color:var(--dim); font-size:14px; margin-bottom:20px; }
+  .vbadge{ display:flex; justify-content:center; gap:12px; flex-wrap:wrap; }
+  .vbadge span{ padding:8px 20px; border-radius:99px; font-weight:800; font-size:13px; backdrop-filter:blur(6px);}
+  .v1{ border:1px solid var(--red); color:var(--red); background:rgba(248,113,113,.12); box-shadow:0 0 20px rgba(248,113,113,.25); }
+  .v3{ border:1px solid var(--green); color:var(--green); background:rgba(0,255,136,.10); box-shadow:0 0 20px rgba(0,255,136,.25); }
+  .card{
+    background:rgba(12,16,32,.66); border:1px solid rgba(120,170,255,.22);
+    border-radius:18px; padding:22px 24px; margin-bottom:20px;
+    backdrop-filter:blur(12px); box-shadow:0 12px 40px rgba(0,0,0,.5);
+    transform:translateZ(0); transition:transform .25s, box-shadow .25s, border-color .25s;
+  }
+  .card:hover{ transform:translateY(-4px); border-color:rgba(56,189,248,.6); box-shadow:0 20px 60px rgba(56,189,248,.22); }
+  .card h2{ font-size:17px; font-weight:800; color:var(--gold); margin-bottom:14px;
+    display:flex; align-items:center; gap:8px; text-shadow:0 0 18px rgba(245,196,81,.4); }
+  .card h2::before{ content:''; width:9px; height:9px; border-radius:50%;
+    background:var(--gold); box-shadow:0 0 12px var(--gold); }
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ padding:11px 12px; border:1px solid rgba(120,170,255,.18); text-align:right; vertical-align:top; }
+  th{ background:rgba(6,10,22,.75); font-weight:800; color:var(--txt); white-space:nowrap; }
+  td.c1{ width:34%; color:var(--txt); }
+  .col-v1{ color:var(--red); } .col-v3{ color:var(--green); }
+  .yes{ color:var(--green); font-weight:700; } .no{ color:var(--red); font-weight:700; }
+  .part{ color:var(--gold); font-weight:700; }
+  .pill{ display:inline-block; font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:99px; margin-left:6px; }
+  .pill.v1{ background:rgba(248,113,113,.16); color:var(--red); border:1px solid rgba(248,113,113,.35); }
+  .pill.v3{ background:rgba(0,255,136,.16); color:var(--green); border:1px solid rgba(0,255,136,.35); }
+  .tag-list{ list-style:none; column-count:1; }
+  .tag-list li{ padding:9px 2px; border-bottom:1px dashed rgba(120,170,255,.22); font-size:13.5px; }
+  .tag-list li:last-child{ border-bottom:0; } .tag-list b{ color:var(--green); }
+  .verdict{
+    background:linear-gradient(135deg, rgba(0,255,136,.08), rgba(56,189,248,.05), rgba(245,196,81,.06));
+    border:1px solid rgba(0,255,136,.3); border-radius:18px; padding:24px;
+    backdrop-filter:blur(12px); box-shadow:0 0 40px rgba(0,255,136,.12);
+  }
+  .verdict h2{ font-size:17px; font-weight:800; margin-bottom:12px; color:var(--txt); }
+  .verdict p{ font-size:13.5px; color:var(--dim); margin-bottom:10px; } .verdict b{ color:var(--txt); }
+  .foot{ text-align:center; color:var(--dim); font-size:11.5px; margin-top:10px;
+    opacity:.85; text-shadow:0 1px 6px rgba(0,0,0,.8); }
+  .hint{ position:fixed; z-index:3; bottom:14px; left:14px; color:var(--dim); font-size:11px;
+    background:rgba(8,11,24,.6); border:1px solid rgba(120,170,255,.2); padding:6px 12px; border-radius:99px; backdrop-filter:blur(6px); }
+  @media(max-width:640px){ th,td{ padding:8px 8px; font-size:11px; } .card{ padding:16px; } }
+</style>
+</head>
+<body>
+<div class="stars-fallback"></div>
+<canvas id="galaxy"></canvas>
+<div class="hint">🖱️ حرکت ماوس / لمس = چرخش کهکشان</div>
+<div class="layer">
+<div class="wrap">
+  <div class="hero">
+    <div class="vbadge">
+      <span class="v1">🟥 فعلی — v1.1.1 (پایدار)</span>
+      <span class="v3">🟩 این نسخه — v3.0.0 (Monorepo)</span>
+    </div>
+    <h1>⚖️ مقایسه جامع DropAgentX</h1>
+    <p class="hsub">مقایسه «همه‌جانبه» نسخه جاری (DropAgentX-v1.1.1/v11) با نسخه 3 (DropAgentX-v3.0.0/v3) — در دل کهکشان زنده سه‌بعدی</p>
+  </div>
+
+  <div class="card">
+    <h2>📦 نمای کلی و آمار</h2>
+    <table>
+      <tr><th>معیار</th><th class="col-v1">v1.1.1 (جاری / پایدار)</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">فلسفه/رویکرد</td><td>نسخه سخت‌شده و باگ‌زدایی‌شده — تمرکز بر پایداری تک‌سرویسه</td><td>Monorepo «غول واحد» — چند سرویس پشت یک Gateway</td></tr>
+      <tr><td class="c1">تعداد تست (pytest)</td><td><b>47</b> (43 پایه + 4 امنیت Markdown)</td><td><b>57</b> (43 پایه + 14 گلو/اتصال)</td></tr>
+      <tr><td class="c1">حجم کد Python</td><td>~5,786 خط</td><td>بیشتر (ماژول‌های جدید gateway/shared + چند سرویس)</td></tr>
+      <tr><td class="c1">معماری</td><td>تک‌سرویس: بات + وب‌ادمین در یک فرایند</td><td>تک‌repo چندسرویسی + Reverse-Proxy واحد</td></tr>
+      <tr><td class="c1">ورود واحد (Single Entry)</td><td class="no">❌ ندارد</td><td class="yes">✅ Gateway رسمی</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🧠 موتور AI و LLM</h2>
+    <table>
+      <tr><th>قابلیت</th><th class="col-v1">v1.1.1</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">اتصال به روتر LLM (9router)</td><td class="no">❌</td><td class="yes">✅ Router Client با فالبک ۳سطح</td></tr>
+      <tr><td class="c1">صرفه‌جویی توکن (Token Saver)</td><td class="no">❌</td><td class="yes">✅ (از 9router + token_saver)</td></tr>
+      <tr><td class="c1">فشرده‌سازی کانتکست تاریخچه بلند</td><td class="no">❌</td><td class="yes">✅ Context Compressor</td></tr>
+      <tr><td class="c1">فراخوانی مستقیم provider</td><td class="yes">✅ (مستقیم)</td><td class="part">⚠️ از طریق روتر (فالبک مستقیم)</td></tr>
+      <tr><td class="c1">حافظه چندوجهی</td><td class="yes">✅ memory</td><td class="yes">✅ memory + memory2</td></tr>
+      <tr><td class="c1">RL هویت (Identity Reinforcement)</td><td class="no">❌</td><td class="yes">✅ identity_rl</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🔌 اتصال و بین‌سرویسی (A2A / MCP)</h2>
+    <table>
+      <tr><th>قابلیت</th><th class="col-v1">v1.1.1</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">پروتکل A2A</td><td class="no">❌</td><td class="yes">✅ A2A v2 (send/stream)</td></tr>
+      <tr><td class="c1">کشف Agent (agent.json / .well-known)</td><td class="no">❌</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">پل MCP (expose ابزارها)</td><td class="no">❌</td><td class="yes">✅ mcp_bridge</td></tr>
+      <tr><td class="c1">اتصال به hermes-agent / radius</td><td class="no">❌</td><td class="yes">✅ (در blueprint)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🛡️ امنیت و امنیت مهارت</h2>
+    <table>
+      <tr><th>قابلیت</th><th class="col-v1">v1.1.1</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">Sandbox فایل / مسیر ایمن</td><td class="yes">✅ (فیکس شده)</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">ارسال ایمن markdown فارسی (RTL)</td><td class="yes">✅ (send_safe — نقطه‌قوت)</td><td class="part">⚠️ پایه مشترک</td></tr>
+      <tr><td class="c1">Skills Guard (اسکن مهارت خطرناک)</td><td class="no">❌</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">مهاجرت دیتابیس ایمن</td><td class="yes">✅ (فیکس بحرانی)</td><td class="part">⚠️</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🌐 وب و فرانت‌اند</h2>
+    <table>
+      <tr><th>قابلیت</th><th class="col-v1">v1.1.1</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">Web Admin (FastAPI)</td><td class="yes">✅</td><td class="yes">✅ (بزرگ‌تر)</td></tr>
+      <tr><td class="c1">Mini App RTL فارسی</td><td class="yes">✅</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">Storefront</td><td class="yes">✅</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">داشبورد یکپارچه Node (9router)</td><td class="no">❌</td><td class="part">⚠️ بخشی از monorepo</td></tr>
+      <tr><td class="c1">لوگوی وب‌اپ (فیکس شده)</td><td class="yes">✅ فیکس شده</td><td class="yes">✅</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>💾 استقرار و زیرساخت</h2>
+    <table>
+      <tr><th>قابلیت</th><th class="col-v1">v1.1.1</th><th class="col-v3">v3.0.0</th></tr>
+      <tr><td class="c1">استقرار Railway</td><td class="yes">✅ تک‌سرویس</td><td class="yes">✅ (gateway+bot+router)</td></tr>
+      <tr><td class="c1">docker-compose</td><td class="yes">✅ تک‌سرویس</td><td class="yes">✅ docker-compose.v3 (چندسرویس)</td></tr>
+      <tr><td class="c1">Volume / حفظ داده</td><td class="yes">✅ (دیتا + آپلود، تأکید شده)</td><td class="yes">✅</td></tr>
+      <tr><td class="c1">Observing / لاگ ساختاریافته</td><td class="part">⚠️ جزئی</td><td class="yes">✅ observability</td></tr>
+      <tr><td class="c1">دیتابیس</td><td>SQLite (ایمن)</td><td>SQLite + برنامه Postgres (فاز 3)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🧩 ماژول‌های فقط در v3.0.0 (جدید در نسخه 3)</h2>
+    <ul class="tag-list">
+      <li>🚪 <b>Gateway</b> — نقطه ورود واحد + reverse-proxy + auth</li>
+      <li>🧠 <b>router_client</b> — اتصال LLM با فالبک ۳سطح و صرفه‌جویی توکن</li>
+      <li>🗜️ <b>context_compressor</b> — فشرده‌سازی تاریخچه چت بلند</li>
+      <li>🛡️ <b>skills_guard</b> — اسکن مهارت/پلاگین خطرناک</li>
+      <li>🤝 <b>a2a_v2</b> — پروتکل A2A + کشف Agent</li>
+      <li>🔌 <b>mcp_bridge</b> — expose ابزارها به‌صورت MCP</li>
+      <li>🧪 <b>identity_rl</b> — یادگیری تقویتی هویت</li>
+      <li>🖼️ <b>media_v2</b> — موتور تولید/بهینه‌سازی مدیا</li>
+      <li>📊 <b>observability</b> — لاگ و مشاهده‌پذیری</li>
+      <li>🧠 <b>memory2</b> — حافظه فست‌بندیشده</li>
+      <li>⚙️ <b>token_saver</b> — صرفه‌جویی توکن خروجی ابزار</li>
+      <li>🗂️ <b>a2a_server</b> — سرور A2A</li>
+    </ul>
+  </div>
+
+  <div class="verdict">
+    <h2>📌 جمع‌بندی و توصیه</h2>
+    <p><b>v1.1.1 (جاری)</b> نقطه‌قوت اصلی‌اش <span class="pill v1">پایداری</span> است: باگ‌های بحرانی رفع‌شده (کرش /start، Markdown فارسی RTL، مهاجرت امن دیتابیس، حفظ کامل حافظه) — <b>گزینه امن برای اجرای فعلی روی Railway</b>.</p>
+    <p><b>v3.0.0</b> یک پرش معماری است: <span class="pill v3">Monorepo چندسرویسی</span> با Gateway واحد، اتصال به روتر LLM/9router، A2A/MCP، فشرده‌سازی کانتکست و امنیت مهارت — <b>برای مقیاس، اینتگریشن با هرمس/رادیوس و صرفه‌جویی توکن</b> طراحی شده.</p>
+    <p><span style="color:var(--gold)">💡 توصیه:</span> اگر به دنبال <b>پایداری و بدون دردسر</b> هستید → v1.1.1 را نگه دارید. اگر می‌خواهید <b>مقیاس، اتصال به اکوسیستم AI (A2A/MCP/روتر LLM) و بهینه‌سازی هزینه</b> داشته باشید → مهاجرت به v3.0.0 منطقی است، ولی نیاز به تست کامل (57 تست) و استقرار چندسرویسی دارد.</p>
+  </div>
+
+  <div class="foot">
+    <p>⚡ کهکشان زنده سه‌بعدی با Three.js — تولیدشده در ۸/۲۸/۲۰۲۶</p>
+  </div>
+</div><!-- /wrap -->
+</div><!-- /layer -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  var canvas = document.getElementById('galaxy');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+  camera.position.set(0, 14, 26);
+
+  // --- Galaxy core (spiral) ---
+  var galaxyGeo = new THREE.BufferGeometry();
+  var count = 26000;
+  var pos = new Float32Array(count * 3);
+  var col = new Float32Array(count * 3);
+  var g = 0.58;
+  for (var i = 0; i < count; i++) {
+    var radius = Math.pow(Math.random(), 1.6) * 18 + 2;
+    var branch = i % 4;
+    var spin = radius * 0.85;
+    var branchAngle = branch / 4 * Math.PI * 2;
+    var randomX = (Math.random() - 0.5) * 0.45;
+    var randomY = (Math.random() - 0.5) * 0.3;
+    var randomZ = (Math.random() - 0.5) * 0.45;
+    var x = Math.cos(branchAngle + spin) * radius + randomX;
+    var y = randomY;
+    var z = Math.sin(branchAngle + spin) * radius + randomZ;
+    pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+    var r = 1, gr = 1, b = 1;
+    if (i % 4 === 0){ r = 0.98; gr = 0.82; b = 0.55; }
+    else if (i % 4 === 1){ r = 0.35; gr = 0.72; b = 1.0; }
+    else if (i % 4 === 2){ r = 0.42; gr = 0.9; b = 1.0; }
+    else { r = 0.95; gr = 0.95; b = 0.95; }
+    col[i*3] = r; col[i*3+1] = gr; col[i*3+2] = b;
+  }
+  galaxyGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  galaxyGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  var starTex = makeStarTexture();
+  var galaxyMat = new THREE.PointsMaterial({
+    size: 0.16, map: starTex, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, vertexColors: true, sizeAttenuation: true
+  });
+  var galaxy = new THREE.Points(galaxyGeo, galaxyMat);
+  scene.add(galaxy);
+
+  // --- Distant star field ---
+  var fieldGeo = new THREE.BufferGeometry();
+  var fc = 3000, fpos = new Float32Array(fc*3);
+  for (var j = 0; j < fc; j++) {
+    var theta = Math.random() * Math.PI * 2;
+    var phi = Math.acos((Math.random()*2)-1);
+    var rr = 90 + Math.random()*110;
+    fpos[j*3] = rr*Math.sin(phi)*Math.cos(theta);
+    fpos[j*3+1] = rr*Math.sin(phi)*Math.sin(theta);
+    fpos[j*3+2] = rr*Math.cos(phi);
+  }
+  fieldGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+  var fieldMat = new THREE.PointsMaterial({
+    size: 0.35, color: 0x9fb8ff, transparent: true, opacity: 0.85,
+    map: starTex, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  var field = new THREE.Points(fieldGeo, fieldMat);
+  scene.add(field);
+
+  // --- Nebula glow (central) ---
+  var glowGeo = new THREE.SphereGeometry(2.6, 24, 24);
+  var glowMat = new THREE.MeshBasicMaterial({
+    color: 0x7aa2ff, transparent: true, opacity: 0.16, depthWrite: false
+  });
+  var glow = new THREE.Mesh(glowGeo, glowMat);
+  scene.add(glow);
+
+  // --- Shooting stars (meteors) ---
+  var SHOOT = 14;
+  var shootGeo = new THREE.BufferGeometry();
+  var sPos = new Float32Array(SHOOT*3);
+  var sLen = new Float32Array(SHOOT);
+  var sLife = new Float32Array(SHOOT);
+  for (var s = 0; s < SHOOT; s++){ sLife[s] = Math.random(); sLen[s] = 1.6; }
+  shootGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+  var shootMat = new THREE.PointsMaterial({
+    size: 0.5, color: 0xffffff, map: starTex, transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9
+  });
+  var shooting = new THREE.Points(shootGeo, shootMat);
+  scene.add(shooting);
+  function resetShoot(i, life){
+    var angle = Math.random()*Math.PI*2;
+    var rad = 30 + Math.random()*40;
+    var x0 = Math.cos(angle)*rad, z0 = Math.sin(angle)*rad;
+    sPos[i*3] = x0;
+    sPos[i*3+1] = 10 + Math.random()*10;
+    sPos[i*3+2] = z0;
+    sLen[i] = 14 + Math.random()*22;
+    sLife[i] = life;
+    shooting.geometry.attributes.position.needsUpdate = true;
+  }
+  for (var st = 0; st < SHOOT; st++) resetShoot(st, Math.random());
+
+  // --- Texture helper ---
+  function makeStarTexture(){
+    var c = document.createElement('canvas'); c.width = c.height = 32;
+    var ctx = c.getContext('2d');
+    var rad = ctx.createRadialGradient(16,16,0,16,16,16);
+    rad.addColorStop(0,'rgba(255,255,255,1)');
+    rad.addColorStop(0.4,'rgba(255,255,255,.6)');
+    rad.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle = rad; ctx.fillRect(0,0,32,32);
+    var tex = new THREE.CanvasTexture(c);
+    return tex;
+  }
+
+  // --- Interaction (pointer parallax) ---
+  var mouseX = 0, mouseY = 0, tx = 0, ty = 0;
+  function onMove(e){
+    if (e.touches){ mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY; }
+    else { mouseX = e.clientX; mouseY = e.clientY; }
+    tx = (mouseX / window.innerWidth - 0.5) * 2;
+    ty = (mouseY / window.innerHeight - 0.5) * 2;
+  }
+  window.addEventListener('mousemove', onMove, false);
+  window.addEventListener('touchmove', onMove, { passive: true });
+
+  window.addEventListener('resize', function(){
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }, false);
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var t = performance.now() * 0.001;
+
+    galaxy.rotation.y = t * 0.045 + 0.4;
+    galaxy.rotation.x = 0.28 + Math.sin(t*0.1)*0.02;
+    glow.rotation.y = t * 0.1;
+    field.rotation.y = t * 0.008;
+
+    // meteors
+    var sp = shooting.geometry.attributes.position.array;
+    for (var i = 0; i < SHOOT; i++){
+      sLife[i] -= 0.0065;
+      if (sLife[i] <= 0){ resetShoot(i, 1.2); continue; }
+      sp[i*3]   -= sLen[i]*0.5;   // x
+      sp[i*3+1] -= sLen[i]*0.16;  // y (falling)
+      sp[i*3+2] -= sLen[i]*0.3;   // z
+      if (sp[i*3] < -70 || sp[i*3+1] < -10) resetShoot(i, 1.2);
+    }
+    shooting.geometry.attributes.position.needsUpdate = true;
+
+    // camera parallax + breathing
+    camera.position.x += ( (tx*3) - camera.position.x ) * 0.05;
+    camera.position.y += ( (14 - ty*2.4) - camera.position.y ) * 0.05;
+    camera.lookAt(0,0,0);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
+
