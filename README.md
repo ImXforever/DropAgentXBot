@@ -1,90 +1,180 @@
-# Hermes Marketplace Bot 🤖🛒
+# DropAgentX v1.1.1 🤖💎
 
-بات تلگرام مارکت‌پلیس محصولات دیجیتال، مجهز به **Hermes Agent**.
+> **DropAgentX** — The Next-Gen Autonomous Social-Commerce Agent & Marketplace Engine powered by **Hermes AI**, Telegram Mini App (SPA), Dual Economy (Credits + Multi-Chain USDT), Vector-like Long-Term Memory, and Fractal Network Architecture.
 
-کاربران با انجام تسک‌های ساده (فالو/ساب) کردیت می‌گیرند، با کمک هرمس محصول
-می‌سازند (آموزش، قالب، فایل و...) و آن را در مارکت به فروش می‌رسانند.
-درآمد پلتفرم: کمیسیون فروش + فروش تبلیغات (تسک).
+[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](V1.1.1-CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI Status](https://github.com/ImXforever/DropAgentXBot/workflows/CI/badge.svg)](.github/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Platform: Telegram + Web](https://img.shields.io/badge/platform-Telegram%20%7C%20Web%20MiniApp-0088cc.svg)](https://telegram.org)
 
 ---
 
-## 🚀 راه‌اندازی سریع
+## 🌟 What is DropAgentX?
 
-```bat
-cd marketplace-bot
-copy .env.example .env
-:: فایل .env را ویرایش کنید (BOT_TOKEN حداقل)
-run.bat
+**DropAgentX** is not just another Telegram bot — it is a complete, self-sustaining **Social-Commerce Ecosystem** driven by an autonomous AI Agent named **Hermesa**. It seamlessly merges chat intelligence, decentralized digital product marketplace, multi-chain USDT treasury, gamified social engagement, and web management dashboards into a unified platform.
+
+Whether you're looking to run an AI-assisted marketplace, deploy an autonomous AI sales assistant, monetize digital content, or build a referral-driven community network, DropAgentX delivers enterprise-grade architecture out-of-the-box.
+
+---
+
+## 🔥 Key Highlights & Features
+
+### 🧠 1. Multi-Engine Autonomous AI (Hermesa)
+* **Hermes Agent Integration**: Supports `CLI` (direct binary execution with session persistence), `HTTP` Gateway, and direct OpenAI-compatible `API` backends (`auto` mode resolves gracefully).
+* **Skill Matrix**: Dynamic load & relevance-ranked injection of `SKILL.md` documents (Hermes skill standard).
+* **Multi-Agent Fleet**: Powered by `fleet.py` (Atlas Orchestrator) for parallel task distribution and multi-role collaborative reasoning.
+* **Persistent Vector-like Memory**: Auto-extracts long-term user preferences, purchase profiles, and personal memories stored in SQLite FTS5 with privacy control (`/set memory_enabled`).
+
+### 📱 2. Telegram Mini App (SPA) & Web Cockpit
+* **Modern Web Interface**: Built-in Persian RTL Telegram Mini App with 6 interactive views (Home, Explore, Create, Wallet, Profile, Agent).
+* **Web Admin Panel**: Secure, password-protected web dashboard (`/admin`) for analytics, transaction monitoring, content moderation, broadcast tools, and one-click database backup/restore.
+* **AI Senpai Cockpit**: Direct browser-based interaction interface with Hermesa.
+
+### 💰 3. Dual Economy & Multi-Chain Treasury
+* **Dual Currency**: Internal `Credits` (earned via social micro-tasks, referrals, and daily engagement) + real `USDT` (on TON, BSC, Solana, TRX).
+* **Telegram Stars (XTR)**: Native Telegram payments integration for frictionless zero-friction purchases.
+* **Automated Blockchain Verification**: Multi-chain listener for incoming transactions with zero-trust idempotent treasury worker.
+* **Atomic Financial Engine**: Single-transaction database ACID locks ensuring zero double-spending or credit collision during concurrent purchases.
+
+### 👥 4. Growth & Fractal Referral Matrix
+* **5-Tier Growth Mechanics**: Referral invite rewards, mystery boxes, milestone bonuses, and lifetime marketplace sales commissions.
+* **Fractal Network Ranks**: Automated progression from Soldier to Capo and Underboss with tier-based override commissions.
+* **Anti-Sybil & Security Shield**: Multi-layered IP rate-limiting, prompt injection sanitization, XSS defense, SSRF guards, and channel membership verification.
+
+---
+
+## 🏗 System Architecture & Directory Map
+
+```
+DropAgentX/
+├── bot.py                  # Main entry point (Telegram Polling + Async Web Loop)
+├── config.py               # Centralized configuration with .env environment validation
+├── database.py             # Singleton SQLite engine (WAL mode, FTS5 index, integrity checks)
+├── hermes_engine.py        # Multi-backend AI Gateway (CLI / HTTP / API modes + Session store)
+├── ai_agent.py             # Hermesa system prompt & smart context compression
+├── memory.py               # Vector-like long-term memory engine (SQLite & pluggable backends)
+├── skills.py               # Hermes SKILL.md dynamic parser and relevance ranker
+├── app_api.py              # Telegram Mini App API (Telegram initData HMAC validation)
+├── tools.py                # 15+ Native Agent tools (Web Search, Code Execution, Cover AI)
+├── fleet.py                # Atlas Multi-Agent Team (Parallel role distribution)
+├── commerce.py             # Atomic transactional primitives for purchases and ledger
+├── blockchain.py           # Multi-chain crypto transaction verification adapters
+├── cron_jobs.py            # Automated daily backups to Telegram, cleanup & metrics
+├── web_admin.py            # FastAPI Web Server (Admin Panel, Storefront, Media server)
+├── a2a_server.py           # Agent-to-Agent machine interface (REST JSON-RPC)
+├── handlers/               # Modular Telegram Handlers (160+ UI routes)
+│   ├── start.py            # Welcome gate, referral tracking & main keyboard
+│   ├── marketplace.py      # Digital catalog, personalized recommendations & buy flow
+│   ├── products.py         # AI-assisted product creation & digital asset upload
+│   ├── ai_chat.py          # Conversational AI with human-like streaming
+│   ├── wallet.py           # Multi-chain USDT deposits, withdrawals & ledger
+│   ├── profile.py          # User stats, rank progress & memory management
+│   ├── tasks.py            # Earn credits via social engagement tasks
+│   ├── referral.py         # Network referral matrix & mystery box claims
+│   └── admin.py            # Granular admin command suite & mass broadcasts
+└── web/                    # Embedded Web UI assets (MiniApp SPA, Admin, Cockpit)
 ```
 
-یا دستی:
+---
+
+## ⚡ Quick Start & Deployment Guide
+
+### Prerequisites
+* Python `3.10` or higher
+* Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+* OpenAI-compatible API Key (OpenAI, OpenRouter, DeepSeek, etc.)
+
+### 1. Local Development Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/ImXforever/DropAgentXBot.git
+cd DropAgentXBot
+
+# Create & activate virtual environment
 python -m venv venv
-venv\Scripts\pip install -r requirements.txt
-venv\Scripts\python bot.py
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env and supply your BOT_TOKEN, ADMIN_IDS, and AI_API_KEY
+
+# Launch DropAgentX
+python bot.py
 ```
 
-## 🔌 اتصال به هرمس
+---
 
-موتور AI بات (`hermes_engine.py`) سه بک‌اند دارد و `HERMES_MODE` را می‌شناسد:
+### 2. Railway Deployment (Production Recommended) ☁️
 
-| Mode | توضیح | پیش‌نیاز |
-|------|-------|----------|
-| `cli` | اجرای واقعی Hermes Agent برای هر پیام: `hermes chat -q ... -Q` + resume خودکار session | نصب hermes-agent (`pip install -e .` از ریپو) |
-| `http` | POST به یک سرور gateway سازگار (`{message, user_id, session_id}` → `{response, session_id}`) | `HERMES_GATEWAY_URL` |
-| `api` | فراخوانی مستقیم OpenAI-compatible API (بدون ابزارهای هرمس) | `AI_API_KEY` |
+DropAgentX is optimized for 1-click cloud deployment on [Railway](https://railway.com) using Docker volumes for persistent storage.
 
-- حالت پیش‌فرض `auto` است: اول CLI، بعد HTTP، بعد API.
-- در حالت `cli/http` هر کاربر تلگرام یک **session جداگانه هرمس** دارد که در جدول
-  `hermes_sessions` ذخیره می‌شود؛ یعنی حافظه مکالمه بین پیام‌ها حفظ می‌ماند.
-- خروجی quiet-mode هرمس (`session_id:` روی stderr) به‌صورت خودکار پارس می‌شود.
+1. Fork or push this repository to your GitHub account.
+2. Create a **New Project** on Railway → Select **Deploy from GitHub repo**.
+3. Add a **Persistent Volume** mounted at `/data` under service settings.
+4. Set the required **Environment Variables** in Railway (see table below).
+5. Generate a **Public Domain** on port `8080`.
 
-نمونه تنظیم `.env` برای حالت CLI:
+#### Essential Railway Environment Variables:
 
+| Variable | Recommended Value | Description |
+| :--- | :--- | :--- |
+| `BOT_TOKEN` | `123456:ABC-DEF...` | Telegram Bot Token from @BotFather |
+| `ADMIN_IDS` | `8198598635` | Comma-separated Telegram User IDs of Admins |
+| `AI_API_KEY` | `sk-or-v1-...` | API Key for OpenRouter/OpenAI |
+| `AI_BASE_URL` | `https://openrouter.ai/api/v1` | Base URL for LLM provider |
+| `AI_MODEL` | `stealth/ox-alpha` | AI Model ID |
+| `HERMES_MODE` | `api` | `api` (direct HTTP) or `cli` / `http` |
+| `DB_PATH` | `/data/marketplace.db` | **Crucial**: Persistent DB path on volume |
+| `UPLOAD_DIR` | `/data/uploads` | **Crucial**: Digital product files path on volume |
+| `WEB_PORT` | `8080` | Port for Web Admin & MiniApp API |
+| `WEB_PASSWORD` | `YourSecurePassword` | Admin Dashboard Password |
+| `BOT_USERNAME` | `DropAgentXBot` | Bot Username (without `@`) |
+
+---
+
+## 🔒 Security & Data Preservation
+
+* **Zero-Loss Data Isolation**: All database state (`marketplace.db`), user memories, transaction logs, and uploaded digital assets reside inside the persistent `/data` volume. Standard deployment pushes to GitHub **never overwrite or erase user data**.
+* **Automated Offsite Backups**: Every night at 04:00 (configurable via `BACKUP_HOUR`), DropAgentX creates an ACID-compliant snapshot of the SQLite database and sends the encrypted copy directly to the Telegram Chat of all designated Admins (`BACKUP_TO_TELEGRAM=1`).
+* **One-Click Hot Restore**: Restore full database states directly from the Web Admin Dashboard (`/admin`) with automatic integrity validation and roll-back protection (`.pre-restore.bak`).
+
+---
+
+## 🧪 Testing & Code Quality
+
+DropAgentX includes comprehensive test coverage for core business logic, marketplace transactions, and security controls.
+
+```bash
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run pytest test suite
+pytest
+
+# Validate Python compilation
+python -m compileall -q .
 ```
-HERMES_MODE=cli
-HERMES_CMD=hermes
-HERMES_PROFILE=marketplace
-```
 
-## 💰 اقتصاد برنامه
+---
 
-- **کردیت** واحد پول است. ۵۰ کردیت هدیه ثبت‌نام.
-- تسک = تبلیغ: مثلاً «۲۰۰۰ فالو × ۵ کردیت» = ۱۰,۰۰۰ کردیت از تبلیغ‌کننده کم و
-  بین انجام‌دهندگان تقسیم می‌شود.
-- کمیسیون فروش: پیش‌فرض ۱۰٪ (`COMMISSION_RATE`) — به فروشنده می‌رسد، بقیه سهم پلتفرم.
-- شمارنده `products_sold` فروشنده پس از هر فروش به‌روز می‌شود (لیدربرد/پروفایل).
+## 📄 License & Credits
 
-## 🧩 ساختار
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
-```
-bot.py              # نقطه ورود
-config.py           # تنظیمات (+ load_dotenv)
-database.py         # SQLite: users/tasks/products/purchases/follows/engagement/comments/skills
-hermes_engine.py    # موتور AI: cli / http / api + session per user
-ai_agent.py         # پرامپت هرمسا + smart_messages (مهارت + حافظه + فشرده‌سازی)
-memory.py           # حافظه بلندمدت: provider ها + پروفایل خرید + پیشنهاد شخصی
-skills.py           # مهارت‌ها با فرمت SKILL.md هرمس + تزریق relevance-ranked
-app_api.py          # API مینی‌اپ: auth تلگرام، فید، engage، خرید، استور، والت
-tools.py            # ۱۵+ ابزار ایجنت (سرچ/دانش/وب/سندباکس/کاور/list_skills…)
-fleet.py            # تیم چند-ایجنتی (Atlas) برای سؤال‌های سنگین
-cron_jobs.py        # گزارش روزانه + بکاپ خودکار تلگرامی + یادآورها
-web_admin.py        # سرور وب: داشبورد ادمین + فروشگاه + مینی‌اپ + بکاپ/بازیابی
-a2a_server.py       # API ماشین-به-ماشین (اختیاری، A2A_PORT)
-utils.py            # ارسال امن Markdown + ChatStream استریم انسانی
-platforms.py        # گیت‌وی چند-پلتفرمی (دیسکورد و…)
-handlers/
-  start.py          # منوی اصلی + دروازه کانال + خوش‌آمد
-  tasks.py          # تسک و کسب کردیت (ساخت تسک داخل FSM)
-  products.py       # ساخت محصول (AI یا دستی) + آپلود فایل
-  marketplace.py    # فروشگاه + جستجو + 🎯 پیشنهاد شخصی + خرید + کمیسیون
-  ai_chat.py        # چت هرمسا (استریم انسانی) + سندساز + کریدیت‌گذاری
-  wallet.py         # کیف پول: واریز/برداشت + نوار پیشرفت + تاریخچه دلاری
-  profile.py        # پروفایل + نردبان رتبه + 🧠 حافظه من + لیدربرد
-  admin.py          # /admin, /addcredits, broadcast همگانی
-web/
-  app/              # 📱 DropAgentX Mini App — SPA فارسی RTL
+* Developed & Maintained by **[ImXforever](https://github.com/ImXforever)**
+* Driven by **[Hermes Agent AI](https://github.com)** Framework architecture.
+
+---
+<p align="center">Made with ❤️ for the Social Commerce & AI Agent Community</p>
+
     index.html      #   پوسته + TG SDK + router
     css/            #   design-system.css + pages.css
     js/core/        #   tg.js · api.js · router.js · ui.js
