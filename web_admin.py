@@ -410,8 +410,17 @@ def build_app():
         return FileResponse(full, media_type=media)
 
     @app.get("/media/{fpath:path}")
-    async def media(fpath: str, request: Request):
-        """Serve public product images and authenticated purchased files only."""
+    async def media(fpath: str, request: Request,
+                    uid: int = 0, exp: int = 0, sig: str = ""):
+        """Serve public product images and authenticated purchased files only.
+
+        v1.0.1 fixes:
+        * signed shareable download links (?uid=&exp=&sig=) — the mini-app
+          cookie is absent when a download URL is opened in an external
+          browser/Telegram, which used to 403 legit buyers;
+        * avatars/covers (files not recorded as a product's file_path) are
+          served publicly instead of 404 — they could never load at all.
+        """
         up = os.path.abspath(config.UPLOAD_DIR)
         full = os.path.realpath(os.path.abspath(os.path.join(up, fpath)))
         if not (os.path.normcase(full).startswith(os.path.normcase(up) + os.sep)
@@ -419,40 +428,63 @@ def build_app():
                 and not os.path.islink(full)):
             raise HTTPException(404)
 
-        # Match the canonical stored path and the relative legacy form. Do not
-        # use a basename fallback: two users can upload the same filename.
+        # Match the canonical stored path, the relative legacy form, the raw
+        # URL form and the uploads-root-agnostic form. Do not use a basename
+        # fallback: two users can upload the same filename.
         rel = os.path.relpath(full, os.getcwd()).replace("\\", "/")
+        forms = {full, rel, fpath, f"{os.path.basename(up)}/{fpath}",
+                 os.path.abspath(fpath)}
+        forms.discard("")
         from database import get_db, is_product_purchased_by_user
-        async with get_db() as db:
-            cur = await db.execute(
-                """SELECT id, file_path, photo_path, preview_path,
-                          img_main, img_feed, img_story
-                   FROM products
-                   WHERE file_path IN (?, ?) OR photo_path IN (?, ?)
-                      OR preview_path IN (?, ?) OR img_main IN (?, ?)
-                      OR img_feed IN (?, ?) OR img_story IN (?, ?)""",
-                (full, rel, full, rel, full, rel, full, rel,
-                 full, rel, full, rel),
-            )
-            matches = await cur.fetchall()
 
-        for row in matches:
-            paths = set()
-            for value in row[1:]:
-                if value:
-                    paths.add(os.path.abspath(str(value)))
-            if os.path.abspath(full) not in paths:
-                continue
-            product_id = row[0]
-            stored_file = os.path.abspath(str(row[1])) if row[1] else None
-            if stored_file == os.path.abspath(full):
-                uid = _app_uid_from_request(request)
-                if not uid or not await is_product_purchased_by_user(product_id, uid):
-                    raise HTTPException(403, "خرید محصول برای دانلود لازم است")
-                return FileResponse(full)
-            # Images/previews are intentionally public; digital files are not.
-            return FileResponse(full)
-        raise HTTPException(404)
+        def _dl_authorized() -> int | None:
+            # 1) mini-app cookie/bearer (same browser context)
+            auth_uid = _app_uid_from_request(request)
+            if auth_uid:
+                return auth_uid
+            # 2) signed download link issued by app_api (any browser context)
+            if uid and exp and sig:
+                import hashlib as _hl
+                h = _hl.sha1(fpath.encode("utf-8", "ignore")).hexdigest()[:16]
+                payload = f"dl.{uid}.{exp}.{h}"
+                try:
+                    if exp >= time.time() and hmac.compare_digest(_sign(payload), sig):
+                        return uid
+                except Exception:
+                    pass
+            return None
+
+        async with get_db() as db:
+            # Only a file recorded as a product's deliverable is gated.
+            # Everything else under uploads/ (covers, previews, avatars,
+            # covers uploaded from the mini-app) is public-by-design.
+            marks = ",".join("?" * len(forms))
+            cur = await db.execute(
+                f"SELECT id FROM products WHERE file_path IN ({marks}) LIMIT 1",
+                tuple(forms))
+            gate = await cur.fetchone()
+            if gate is None and fpath.rsplit(".", 1)[-1].lower() not in {
+                    "jpg", "jpeg", "png", "webp", "gif", "svg", "avif"}:
+                # Non-image that matched no stored form: make sure it is not a
+                # digital deliverable recorded under a different uploads root
+                # (e.g. after moving uploads onto a volume) — fail closed.
+                cur = await db.execute(
+                    "SELECT id, file_path FROM products "
+                    "WHERE file_path IS NOT NULL AND file_path != ''")
+                for pid, fp in await cur.fetchall():
+                    try:
+                        if os.path.abspath(str(fp)) == full:
+                            gate = (pid,)
+                            break
+                    except Exception:
+                        continue
+
+        if gate:
+            product_id = gate[0]
+            auth_uid = _dl_authorized()
+            if not auth_uid or not await is_product_purchased_by_user(product_id, auth_uid):
+                raise HTTPException(403, "خرید محصول برای دانلود لازم است")
+        return FileResponse(full)
 
     # ----- public API -----
 
@@ -946,8 +978,10 @@ def build_app():
     # ----- admin: users -----
 
     @app.get("/api/admin/users")
-    async def admin_users(request: Request, q: str = "", limit: int = 50):
+    async def admin_users(request: Request, q: str = "", limit: int = 50,
+                          offset: int = 0, filter: str = "", sort: str = ""):
         limit = max(1, min(int(limit), 200))  # F9: بدون سقف → DoS سبک با limit=10^9
+        offset = max(0, int(offset))
         _guard(request)
         from database import escape_like, get_db
         cond, extra = "1=1", []
@@ -956,15 +990,110 @@ def build_app():
             e = f"%{escape_like(term)}%"
             cond = "(u.username LIKE ? OR u.first_name LIKE ? OR CAST(u.user_id AS TEXT) LIKE ?)"
             extra = [e, e, e]
+        # v1.0.1: filters for full user control
+        if filter == "banned":
+            cond += " AND u.is_banned=1"
+        elif filter == "active":
+            cond += " AND u.is_banned=0"
+        elif filter == "hunters":
+            cond += " AND u.role='hunter'"
+        elif filter == "sellers":
+            cond += (" AND (SELECT COUNT(*) FROM products p "
+                     "WHERE p.creator_id=u.user_id AND p.is_active=1)>0")
+        elif filter == "buyers":
+            cond += (" AND (SELECT COUNT(*) FROM purchases pc "
+                     "WHERE pc.buyer_id=u.user_id)>0")
+        order = {
+            "": "u.created_at DESC",
+            "oldest": "u.created_at ASC",
+            "credits": "u.credits DESC",
+            "earned": "u.total_earned DESC",
+            "spent": "u.total_spent DESC",
+            "buys": "buys DESC",
+        }.get(sort, "u.created_at DESC")
         async with get_db() as db:
-            cur = await db.execute(
-                f"""SELECT u.*,
+            base = f"""SELECT u.*,
                        (SELECT COUNT(*) FROM purchases pc WHERE pc.buyer_id=u.user_id) AS buys,
                        (SELECT COUNT(*) FROM products p WHERE p.creator_id=u.user_id AND p.is_active=1) AS listed
-                    FROM users u WHERE {cond}
-                    ORDER BY u.created_at DESC LIMIT ?""",
-                extra + [max(1, min(limit, 100))])
-            return {"items": [dict(r) for r in await cur.fetchall()]}
+                    FROM users u WHERE {cond}"""
+            cnt = await db.execute(f"SELECT COUNT(*) FROM ({base})", extra)
+            total = (await cnt.fetchone())[0]
+            cur = await db.execute(
+                f"{base} ORDER BY {order} LIMIT ? OFFSET ?",
+                extra + [limit, offset])
+            rows = await cur.fetchall()
+            return {"items": [dict(r) for r in rows], "total": total}
+
+    @app.get("/api/admin/users/{uid}/detail")
+    async def admin_user_detail(uid: int, request: Request):
+        """v1.0.1: full 360° view of a user for the admin panel."""
+        _guard(request)
+        from database import get_db, get_user
+        u = await get_user(uid)
+        if not u:
+            raise HTTPException(404, "کاربر پیدا نشد")
+        u = dict(u) if not isinstance(u, dict) else u
+        async with get_db() as db:
+            async def _rows(sql, args):
+                cur = await db.execute(sql, args)
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, r)) for r in await cur.fetchall()]
+            purchases = await _rows(
+                """SELECT pc.id, pc.price_credits, pc.purchased_at, pr.title
+                   FROM purchases pc LEFT JOIN products pr ON pr.id=pc.product_id
+                   WHERE pc.buyer_id=? ORDER BY pc.id DESC LIMIT 15""", (uid,))
+            products = await _rows(
+                """SELECT id, title, price_credits, sales_count, status, is_active
+                   FROM products WHERE creator_id=? ORDER BY id DESC LIMIT 15""", (uid,))
+            transactions = await _rows(
+                """SELECT * FROM transactions WHERE user_id=?
+                   ORDER BY id DESC LIMIT 15""", (uid,))
+            refs = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE referred_by=?", (uid,))
+            referrals = (await refs.fetchone())[0]
+        return {"user": u, "purchases": purchases, "products": products,
+                "transactions": transactions, "referrals": referrals}
+
+    class RoleIn(BaseModel):
+        role: str
+
+    @app.post("/api/admin/users/{uid}/role")
+    async def admin_user_role(uid: int, body: RoleIn, request: Request):
+        """v1.0.1: change a user's role from the admin panel."""
+        _guard(request)
+        valid = {"associate", "soldier", "capo", "underboss", "hunter"}
+        if body.role not in valid:
+            raise HTTPException(400, "نقش نامعتبر")
+        from database import get_db, get_user
+        u = await get_user(uid)
+        if not u:
+            raise HTTPException(404, "کاربر پیدا نشد")
+        async with get_db() as db:
+            await db.execute("UPDATE users SET role=? WHERE user_id=?",
+                             (body.role, uid))
+            await db.commit()
+        role_fa = {"associate": "کارآموز", "soldier": "سرباز", "capo": "کاپو",
+                   "underboss": "آندرباس", "hunter": "هانتر"}[body.role]
+        await _notify(uid, f"🎭 نقش تو به «{role_fa}» تغییر کرد (ادمین).")
+        return {"ok": True}
+
+    class MsgIn(BaseModel):
+        text: str
+
+    @app.post("/api/admin/users/{uid}/msg")
+    async def admin_user_msg(uid: int, body: MsgIn, request: Request):
+        """v1.0.1: send a direct message to a user via the bot."""
+        _guard(request)
+        text = body.text.strip()[:3000]
+        if not text:
+            raise HTTPException(400, "متن خالی است")
+        if not _BOT:
+            raise HTTPException(503, "بات در دسترس نیست")
+        try:
+            await _BOT.send_message(uid, text)
+        except Exception as e:
+            raise HTTPException(502, f"ارسال ناموفق: {str(e)[:120]}")
+        return {"ok": True}
 
     class BanIn(BaseModel):
         banned: bool

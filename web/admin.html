@@ -316,7 +316,9 @@ function barChart(data,key,color){
 }
 
 /* ================= routing / render guard ================= */
-const ROUTES=['dash','mod','deps','wds','users','prods','tasks','sess','bcst','set'];
+/* FIX(v1.0.1): 'skills' و 'hunters' از ROUTES جا افتاده بودند — کلیک روی دکمه و
+   باز کردن URL با #skills/#hunters هیچ واکنشی نداشت (hash عوض می‌شد ولی render نه). */
+const ROUTES=['dash','mod','deps','wds','users','prods','tasks','skills','hunters','sess','bcst','set'];
 const GEN={n:0};
 let VIEW=(()=>{const h=location.hash.slice(1);return ROUTES.includes(h)?h:'dash'})();
 let RENDERING=false;
@@ -476,35 +478,131 @@ async function revWd(id,action){
 /* ================= users ================= */
 async function vUsers(v,g){
   if(g!==GEN.n)return;
-  v.innerHTML=`<h2>👥 کاربران</h2>
-   <div class="toolbar"><input id="uq" placeholder="جستجو: نام، یوزرنیم، آیدی…" onkeydown="if(event.key==='Enter')renderUsers()">
-   <button class="btn gold" onclick="renderUsers()" type="button">جستجو</button></div><div id="uList" class="load">…در حال بارگذاری</div>`;
+  v.innerHTML=`<h2>👥 کاربران <span style="color:var(--dim);font-size:12px">مدیریت کامل</span></h2>
+   <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+     <input id="uq" placeholder="جستجو: نام، یوزرنیم، آیدی…" style="min-width:200px" onkeydown="if(event.key==='Enter'){UFP.offset=0;renderUsers()}">
+     <select id="ufFilter" onchange="UFP.offset=0;renderUsers()">
+       <option value="">همه</option>
+       <option value="banned">🔒 بن‌شده‌ها</option>
+       <option value="active">✅ فعال</option>
+       <option value="hunters">🏹 هانترها</option>
+       <option value="sellers">🏪 فروشنده‌ها</option>
+       <option value="buyers">🛒 خریدارها</option>
+     </select>
+     <select id="ufSort" onchange="renderUsers()">
+       <option value="">جدیدترین</option>
+       <option value="oldest">قدیمی‌ترین</option>
+       <option value="credits">بیشترین کردیت</option>
+       <option value="earned">بیشترین درآمد</option>
+       <option value="spent">بیشترین خرج</option>
+       <option value="buys">بیشترین خرید</option>
+     </select>
+     <button class="btn gold" onclick="UFP.offset=0;renderUsers()" type="button">🔍 جستجو</button>
+     <a class="btn blue" href="/api/admin/export/users.csv" style="text-decoration:none">⬇️ CSV</a>
+   </div><div id="uList" class="load">…در حال بارگذاری</div>
+   <div id="uPager" style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:12px"></div>`;
   await renderUsers();
 }
+const UFP={q:'',filter:'',sort:'',offset:0,limit:25,total:0};
 async function renderUsers(){
-  const box=$('#uList');
-  if(!box)return;
-  const q=encodeURIComponent(($('#uq')||{}).value||'');
+  const box=$('#uList');if(!box)return;
+  UFP.q=($('#uq')||{}).value||'';
+  UFP.filter=($('#ufFilter')||{}).value||'';
+  UFP.sort=($('#ufSort')||{}).value||'';
+  const p=new URLSearchParams({q:UFP.q,filter:UFP.filter,sort:UFP.sort,limit:String(UFP.limit),offset:String(UFP.offset)});
   try{
-    const d=await api('/api/admin/users?q='+q+'&limit=50');
+    const d=await api('/api/admin/users?'+p.toString());
     if($('#uList')!==box)return;
+    UFP.total=d.total||0;
     const items=d.items||[];
-    box.innerHTML=items.length?tbl(['آیدی','نام','کردیت','خرید','محصول','وضعیت',''],items.map(u=>[
+    box.innerHTML=items.length?tbl(['آیدی','نام','کردیت','خرید','محصول','نقش/وضعیت','عملیات'],items.map(u=>[
       `<span class="num">${u.user_id}</span>`,
       `${esc(u.first_name||'')} ${u.username?'<small style="color:var(--dim)">@'+esc(u.username)+'</small>':''}`,
       `<b class="num" style="color:var(--green)">${fmt(u.credits)}</b>`,
       `<span class="num">${u.buys||0}</span>`,
       `<span class="num">${u.listed||0}</span>`,
       u.is_banned?'<span class="pill p-no">بن</span>':`<span class="pill p-ok">${roleFa(u.role)}</span>`,
-      `<button class="btn sm gold" onclick="addCred(${u.user_id})" type="button">± کردیت</button>
-       <button class="btn sm blue" onclick="memModal(${u.user_id})" type="button">🧠</button>
-       <button class="btn sm ${u.is_banned?'ok':'no'}" onclick="banU(${u.user_id},${!u.is_banned})" type="button">${u.is_banned?'رفع بن':'بن'}</button>`]))
+      `<button class="btn sm blue" onclick="userDetail(${u.user_id})" title="جزئیات">👁</button>
+       <button class="btn sm gold" onclick="addCred(${u.user_id})" title="کردیت">±</button>
+       <button class="btn sm blue" onclick="memModal(${u.user_id})" title="حافظه">🧠</button>
+       <button class="btn sm" style="background:var(--panel2)" onclick="msgUser(${u.user_id})" title="پیام">✉️</button>
+       <button class="btn sm" style="background:var(--panel2)" onclick="setRole(${u.user_id},'${esc(u.role||'associate')}')" title="نقش">🎭</button>
+       <button class="btn sm ${u.is_banned?'ok':'no'}" onclick="banU(${u.user_id},${!u.is_banned})">${u.is_banned?'رفع بن':'بن'}</button>`]))
     :'<div class="none">کاربری پیدا نشد</div>';
+    const pg=$('#uPager');
+    if(pg){
+      const from=UFP.total?UFP.offset+1:0, to=Math.min(UFP.offset+UFP.limit,UFP.total);
+      pg.innerHTML=`<small style="color:var(--dim)">${from}–${to} از ${fmt(UFP.total)}</small>
+       <span>${UFP.offset>0?`<button class="btn sm blue" onclick="UFP.offset=Math.max(0,UFP.offset-UFP.limit);renderUsers()">→ قبلی</button>`:''}
+       ${to<UFP.total?`<button class="btn sm blue" onclick="UFP.offset+=UFP.limit;renderUsers()">بعدی ←</button>`:''}</span>`;
+    }
   }catch(e){
-    if($('#uList')===box)box.innerHTML=`<div class="none" style="color:var(--red)">âš ï¸ ${esc(emsg(e))}</div>`;
+    if($('#uList')===box)box.innerHTML=`<div class="none" style="color:var(--red)">⚠️ ${esc(emsg(e))}</div>`;
   }
 }
-const roleFa=r=>({associate:'کارآموز',soldier:'سرباز',capo:'کاپو',underboss:'آندرباس'}[r]||'کاربر');
+async function userDetail(uid){
+  const mB=$('#mBox'),mG=$('#mBg');
+  mB.innerHTML='<div class="load">…</div>';mG.classList.add('open');
+  try{
+    const d=await api(`/api/admin/users/${uid}/detail`);
+    const u=d.user||{};
+    const rows=(arr,fn)=>arr&&arr.length?arr.map(fn):[['<small style="color:var(--dim)">ندارد</small>','']];
+    mB.innerHTML=`<h3>👤 ${esc(u.first_name||u.username||uid)} <span class="num" style="font-size:12px">${uid}</span>
+      ${u.is_banned?'<span class="pill p-no">بن</span>':''} <span class="pill p-ok">${roleFa(u.role)}</span></h3>
+     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0">
+      <div class="panel" style="padding:8px;text-align:center"><b class="num" style="color:var(--green)">${fmt(u.credits||0)}</b><br><small>کردیت</small></div>
+      <div class="panel" style="padding:8px;text-align:center"><b class="num">${fmt(u.total_earned||0)}</b><br><small>درآمد</small></div>
+      <div class="panel" style="padding:8px;text-align:center"><b class="num">${fmt(u.total_spent||0)}</b><br><small>خرج</small></div>
+      <div class="panel" style="padding:8px;text-align:center"><b class="num">${fmt(d.referrals||0)}</b><br><small>ریفرال</small></div>
+     </div>
+     <h4>🛒 آخرین خریدها</h4>${tbl(['محصول','قیمت'],rows(d.purchases,p=>[`<small>${esc(p.title||'-')}</small>`,`<span class="num">${fmt(p.price_credits)}</span>`]))}
+     <h4>🏪 محصولات</h4>${tbl(['عنوان','قیمت'],rows(d.products,p=>[`<small>${esc(p.title)}</small> ${p.status==='approved'?'✅':'⏳'}`,`<span class="num">${fmt(p.price_credits)}</span>`]))}
+     <h4>💳 تراکنش‌های اخیر</h4>${tbl(['شرح','مبلغ'],rows(d.transactions,t=>[`<small>${esc(t.description||t.tx_type||'')}</small>`,`<span class="num" style="color:${(t.amount||0)>=0?'var(--green)':'var(--red)'}">${(t.amount||0)>=0?'+':''}${fmt(t.amount||0)}</span>`]))}
+     <br><button class="btn btn-ghost" onclick="closeModal()" style="width:100%">بستن</button>`;
+  }catch(e){mB.innerHTML=`<div class="none">⚠️ ${esc(emsg(e))}</div>`}
+}
+function setRole(uid,cur){
+  const mB=$('#mBox'),mG=$('#mBg');
+  mB.innerHTML=`<h3>🎭 نقش کاربر <span class="num">${uid}</span></h3>
+   <p style="font-size:11px;color:var(--dim)">نقش فعلی: ${roleFa(cur)}</p>
+   <select id="srRole" style="width:100%">
+     <option value="associate">کارآموز (associate)</option>
+     <option value="soldier">سرباز (soldier)</option>
+     <option value="capo">کاپو (capo)</option>
+     <option value="underboss">آندرباس (underboss)</option>
+     <option value="hunter">هانتر (hunter)</option>
+   </select>
+   <div style="display:flex;gap:10px;margin-top:16px">
+     <button class="btn gold" style="flex:1" id="srOk" type="button">ثبت نقش</button>
+     <button class="btn" style="background:var(--panel2);color:var(--dim)" onclick="closeModal()" type="button">لغو</button></div>`;
+  mG.classList.add('open');
+  $('#srRole').value=['associate','soldier','capo','underboss','hunter'].includes(cur)?cur:'associate';
+  $('#srOk').onclick=()=>{
+    api(`/api/admin/users/${uid}/role`,{role:$('#srRole').value})
+      .then(()=>{closeModal();toast('نقش عوض شد 🎭');renderUsers()})
+      .catch(e=>toast(emsg(e),true));
+  };
+}
+function msgUser(uid){
+  const mB=$('#mBox'),mG=$('#mBg');
+  mB.innerHTML=`<h3>✉️ پیام به کاربر <span class="num">${uid}</span></h3>
+   <textarea id="msBody" style="width:100%;min-height:110px" maxlength="3000" placeholder="متن پیام…"></textarea>
+   <div style="display:flex;gap:10px;margin-top:14px">
+     <button class="btn gold" style="flex:1" id="msOk" type="button">ارسال</button>
+     <button class="btn" style="background:var(--panel2);color:var(--dim)" onclick="closeModal()" type="button">لغو</button></div>`;
+  mG.classList.add('open');
+  $('#msBody').focus();
+  $('#msOk').onclick=()=>{
+    const t=$('#msBody').value.trim();
+    if(!t){toast('متن خالی است',true);return}
+    const b=$('#msOk');b.disabled=true;
+    api(`/api/admin/users/${uid}/msg`,{text:t})
+      .then(()=>{closeModal();toast('ارسال شد ✅')})
+      .catch(e=>toast(emsg(e),true))
+      .finally(()=>{b.disabled=false});
+  };
+}
+const roleFa=r=>({associate:'کارآموز',soldier:'سرباز',capo:'کاپو',underboss:'آندرباس',hunter:'هانتر 🏹'}[r]||'کاربر');
 function banU(uid,b){
   api(`/api/admin/users/${uid}/ban`,{banned:b})
     .then(()=>{toast(b?'بن شد':'رفع بن شد');renderUsers()})

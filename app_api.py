@@ -417,18 +417,32 @@ def register(app):
             r["photo_url"] = _media(r.pop("photo_path") or r.pop("preview_path"))
         return rows
 
-    def _media(path: str | None) -> str | None:
+    def _media(path: str | None, for_uid: int | None = None) -> str | None:
         if not path:
             return None
         up = os.path.abspath(cfg.UPLOAD_DIR)
         rel = os.path.relpath(os.path.abspath(path), up).replace("\\", "/")
+        media_rel = None
         if not rel.startswith("..") and os.path.isfile(os.path.join(up, *rel.split("/"))):
-            return f"/media/{rel}"  # e.g. covers/xxx.png or <uid>/prod_x.jpg
-        # legacy: bare filename living in the uploads root
-        base = os.path.basename(path.replace("\\", "/"))
-        if base and os.path.isfile(os.path.join(up, base)):
-            return f"/media/{base}"
-        return None
+            media_rel = rel  # e.g. covers/xxx.png or <uid>/prod_x.jpg
+        else:
+            # legacy: bare filename living in the uploads root
+            base = os.path.basename(path.replace("\\", "/"))
+            if base and os.path.isfile(os.path.join(up, base)):
+                media_rel = base
+        if not media_rel:
+            return None
+        url = f"/media/{media_rel}"
+        if for_uid:
+            # v1.0.1: append a signed 30-day token so the link also works when
+            # opened outside the mini-app WebView (no happ cookie there).
+            # Mirrors the verification in web_admin's /media handler.
+            from web_admin import _sign
+            exp = int(time.time()) + 30 * 86400
+            h = hashlib.sha1(media_rel.encode("utf-8", "ignore")).hexdigest()[:16]
+            payload = f"dl.{for_uid}.{exp}.{h}"
+            url += f"?uid={for_uid}&exp={exp}&sig={_sign(payload)}"
+        return url
 
     @app.get("/api/app/feed")
     async def app_feed(request: Request, mode: str = "foryou", cat: str = "all",
@@ -717,7 +731,7 @@ def register(app):
         bal = await get_user(uid)
         return {
             "ok": True,
-            "file_url": _media(result.product.get("file_path")),
+            "file_url": _media(result.product.get("file_path"), for_uid=uid),
             "balance": bal["credits"],
         }
 
@@ -907,7 +921,7 @@ def register(app):
             bought = []
             for r in await cur.fetchall():
                 d = dict(zip(cols, r))
-                d["download_url"] = _media(d.get("file_path"))
+                d["download_url"] = _media(d.get("file_path"), for_uid=uid)
                 d.pop("file_path", None)
                 bought.append(d)
             cur = await db.execute(
