@@ -1,12 +1,8 @@
 """V3 Test Suite — Tools (file, terminal, browser, approval, batch, skills)."""
 import asyncio
-import json
 import os
-import time
 
 import pytest
-import pytest_asyncio
-
 
 # =========================================================
 # File Tools (V3-1)
@@ -43,7 +39,7 @@ async def test_sensitive_file_blocked(isolated_db):
 @pytest.mark.asyncio
 async def test_patch_file(isolated_db):
     os.environ["FILE_TOOLS_ROOT"] = str(isolated_db)
-    from file_tools import write_file, patch_file, read_file
+    from file_tools import patch_file, read_file, write_file
     await write_file("cfg.py", "VERSION = '1.0'\nDEBUG = True", user_id=1)
     r = await patch_file("cfg.py", "DEBUG = True", "DEBUG = False", user_id=1)
     assert r.success and r.data["replacements"] == 1
@@ -55,7 +51,7 @@ async def test_patch_file(isolated_db):
 async def test_search_files(isolated_db):
     root = str(isolated_db)
     os.environ["FILE_TOOLS_ROOT"] = root
-    from file_tools import write_file, search_files
+    from file_tools import search_files, write_file
     await write_file("a.py", "x = 1", user_id=1)
     await write_file("b.py", "y = 2", user_id=1)
     await write_file("c.txt", "hello", user_id=1)
@@ -146,8 +142,12 @@ def test_context_risk_modifier():
 
 @pytest.mark.asyncio
 async def test_approval_flow(isolated_db):
-    from approval import (create_approval_request, approve_request,
-                          _ensure_audit_table, audit_history)
+    from approval import (
+        _ensure_audit_table,
+        approve_request,
+        audit_history,
+        create_approval_request,
+    )
     await _ensure_audit_table()  # create table in isolated DB
     req = create_approval_request("pip install flask", user_id=42)
     assert req["approval_id"]
@@ -232,8 +232,9 @@ async def test_batch_runner_timeout():
 
 @pytest.mark.asyncio
 async def test_batch_runner_concurrent():
-    from batch_runner import run_batch
     import time as _time
+
+    from batch_runner import run_batch
     async def fast(_, x):
         await asyncio.sleep(0.02)
         return x
@@ -250,7 +251,7 @@ async def test_batch_runner_concurrent():
 
 @pytest.mark.asyncio
 async def test_skills_hub(isolated_db):
-    from skills_catalog import hub_list, hub_install, hub_uninstall, hub_search
+    from skills_catalog import hub_install, hub_list, hub_search, hub_uninstall
     catalog = await hub_list()
     assert len(catalog) >= 8
 

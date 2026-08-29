@@ -1,17 +1,21 @@
 import re
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import config
 from database import (
-    get_user, get_db, usdt_to_credits,
-    create_deposit, create_withdrawal,
-    list_user_deposits, list_user_withdrawals, update_credits,
+    create_deposit,
+    create_withdrawal,
+    get_db,
+    list_user_deposits,
+    list_user_withdrawals,
+    update_credits,
+    usdt_to_credits,
 )
-from utils import get_or_create_user,  send_safe, edit_safe
+from utils import edit_safe, get_or_create_user, send_safe
 
 router = Router()
 
@@ -52,6 +56,9 @@ def wallet_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📤 برداشت USDT", callback_data="wd_start"),
         ],
         [InlineKeyboardButton(text="📜 تاریخچه واریز/برداشت", callback_data="wh_history")],
+        # v3.5.0: رشد — نگهداشت روزانه + کد هدیه کمپینی
+        [InlineKeyboardButton(text="🎁 بونوس روزانه", callback_data="daily_bonus"),
+         InlineKeyboardButton(text="🎟 کد هدیه دارم", callback_data="promo_redeem")],
         [InlineKeyboardButton(text="🔙 منو", callback_data="main_menu")],
     ])
 
@@ -65,7 +72,6 @@ async def wallet_menu(callback: CallbackQuery, state: FSMContext):
 
     wd_min = await dynf("withdraw_min_usdt", config.WITHDRAW_MIN_USDT)
     # 4-A: first withdrawal = 60% of standard threshold (trust builder)
-    from database import get_db
     async with get_db() as db:
         cur = await db.execute(
             "SELECT has_withdrawn FROM users WHERE user_id=?", (callback.from_user.id,))

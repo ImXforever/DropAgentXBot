@@ -1,7 +1,8 @@
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from database import create_user, get_user
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from database import create_user
 from utils import get_or_create_user, send_safe
 
 router = Router()
@@ -15,6 +16,8 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     """UX v2 — ۷ دکمه به‌جای ۱۰ · گروه‌بندی منطقی · فعل‌محور"""
+    from config import config as _cfg
+    _sup = (_cfg.SUPPORT_CONTACT or "@ImXforevr").lstrip("@")
     return InlineKeyboardMarkup(inline_keyboard=[
         [   # ── Core value props (top row = most visible) ──
             InlineKeyboardButton(text="💗 با هرمسا گپ بزن", callback_data="ai_chat"),
@@ -28,9 +31,17 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📦 فروش کن", callback_data="my_products"),
             InlineKeyboardButton(text="👥 دعوت دوستان", callback_data="referral"),
         ],
+        [   # ── v4.0.0: نگهداشت + پشتیبانی همیشه در دسترس ──
+            InlineKeyboardButton(text="🏆 ماموریت‌ها", callback_data="quests_menu"),
+            InlineKeyboardButton(text="🏆 لیدربورد", callback_data="leaderboard_xp_all"),
+            InlineKeyboardButton(text="🎫 پشتیبانی", callback_data="support_menu"),
+        ],
         [
             InlineKeyboardButton(text="👤 پروفایل", callback_data="profile"),
             InlineKeyboardButton(text="❓ راهنما", callback_data="help_menu"),
+        ],
+        [   # ── همیشه یک راه نجات در دسترس ──
+            InlineKeyboardButton(text="🆘 پشتیبانی", url=f"https://t.me/{_sup}"),
         ],
     ])
 
@@ -39,8 +50,8 @@ def main_menu_kb() -> InlineKeyboardMarkup:
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
 
-    from handlers.admin import is_member_of_force_channel, is_admin
     from database import get_setting
+    from handlers.admin import is_admin, is_member_of_force_channel
     if not is_admin(message.from_user.id) and \
             (await get_setting("maintenance", "0")) == "1":
         await send_safe(message,
@@ -69,7 +80,11 @@ async def cmd_start_payload(message: Message):
         if raw.isdigit():
             referrer_id = int(raw)
 
-    is_new = await get_or_create_user(message.from_user) is None
+    # FIX(v2.0 / BUG-REF-1): get_or_create_user هیچ‌وقت None برنمی‌گرداند (خودش
+    # می‌سازد!) → is_new همیشه False بود و set_referred_by هرگز اجرا نمی‌شد؛
+    # یعنی آمار دعوت همه همیشه صفر نمایش داده می‌شد.
+    from database import get_user as _get_user
+    is_new = (await _get_user(message.from_user.id)) is None
     user = await create_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
@@ -84,24 +99,55 @@ async def cmd_start_payload(message: Message):
 
     kb = main_menu_kb()
 
+    # ── v3.4.0 لانچ: بونوس اعضای ۱٬۰۰۰ نفر اول ──
+    launch_line = ""
+    if is_new:
+        try:
+            from config import config as _cfg
+            from database import get_db as _gdb
+            from database import get_setting as _gs
+            from database import set_setting as _ss
+            from database import update_credits as _uc
+            async with _gdb() as _db:
+                _cur = await _db.execute("SELECT COUNT(*) FROM users")
+                _cnt = (await _cur.fetchone())[0]
+            if _cnt <= max(1, _cfg.LAUNCH_TARGET):
+                _flag = f"early_{message.from_user.id}"
+                if (await _gs(_flag, "")) != "1":
+                    await _ss(_flag, "1")
+                    await _uc(message.from_user.id, _cfg.LAUNCH_BONUS_CREDITS,
+                              "launch_bonus", "🏆 بونوس عضویت زودهنگام (۱۰۰۰ نفر اول)")
+                    launch_line = (
+                        f"🏆 تبریک! تو عضو شمارهٔ **{_cnt} از ۱٬۰۰۰ نفر اول** هستی\n"
+                        f"🎁 بونوس زودهنگام: **+{_cfg.LAUNCH_BONUS_CREDITS} کردیت** دیگه هدیه گرفتی!\n\n"
+                    )
+        except Exception:
+            pass
+
     if is_new:
         # ── First-time welcome: hook → gift → clear path → FOMO ──
+        from config import config as _cfg2
+        _sup = (_cfg2.SUPPORT_CONTACT or "@ImXforevr")
         welcome = (
             f"🌸 سلام {message.from_user.first_name}! خوش اومدی به خانواده 😊\n\n"
-            f"🎁 یه هدیهٔ خوش‌اومدی برات گذاشتیم:\n"
-            f"**{user['credits']:,} کردیت ≈ ۱$** — همین الان قابل استفاده!\n\n"
+            f"{launch_line}"
+            f"🎁 هدیهٔ خوش‌اومدیت همین الان شارژ شد:\n"
+            f"**{user['credits']:,} کردیت ≈ ۱$** — بدون هیچ شرطی!\n\n"
             f"━━━━━━━━━━━━━━━\n"
             f"🚀 **فقط ۳ قدم تا اولین درآمد دلاریت:**\n\n"
-            f"۱️⃣ ✅ چند تسک ساده بزن ← کردیت جمع کن\n"
-            f"۲️⃣ 💗 با هرمسا حرف بزن ← ایده‌ات رو تبدیل به محصول کن\n"
-            f"۳️⃣ 🛒 بفروش ← USDT برداشت کن\n"
+            f"۱️⃣ ✅ «کسب کردیت» رو بزن ← با چند تسک ساده کردیت جمع کن\n"
+            f"۲️⃣ 💗 «با هرمسا گپ بزن» ← ایده‌ات رو AI به محصول تبدیل می‌کنه\n"
+            f"۳️⃣ 🛒 «فروشگاه» ← بفروش و USDT برداشت کن\n"
             f"━━━━━━━━━━━━━━━\n\n"
-            f"🔥 همین الان {user['credits']:,} کردیت داری — "
-            f"می‌تونی همین امروز شروع کنی!\n\n"
-            f"💡 *۱٬۰۰۰ کردیت = ۱ USDT*"
+            f"💡 راهنمای هر بخش داخل «❓ راهنما» است — گم شدی، اونجا همه‌چی هست\n"
+            f"🆘 هر سوالی داشتی: {_sup} — همیشه پاسخگو\n\n"
+            f"🔥 همین الان {user['credits']:,} کردیت داری — از دکمه‌های پایین شروع کن!\n"
+            f"💎 *۱٬۰۰۰ کردیت = ۱ USDT*"
         )
     else:
+        from config import config as _cfg3
         from database import mem_count
+        _sup3 = (_cfg3.SUPPORT_CONTACT or "@ImXforevr")
         try:
             mem_n = await mem_count(user["user_id"])
         except Exception:
@@ -112,7 +158,7 @@ async def cmd_start_payload(message: Message):
         if user["credits"] < 10:
             nudge = (
                 "⚠️ کردیتت تموم شده تقریباً! چند تسک بزن دوباره پر شه 💪\n"
-                "👉 «✅ کسب کردیت» رو بزن"
+                "👉 دکمهٔ «✅ کسب کردیت» رو بزن"
             )
         elif user["credits"] < 100:
             nudge = (
@@ -122,17 +168,27 @@ async def cmd_start_payload(message: Message):
         elif user["credits"] >= 5000:
             nudge = "💸 تو بازهٔ برداختی! کیف پول رو چک کن 🎉"
         else:
-            nudge = f"💡 با این موجودی می‌تونی محصولات خوبی بخری!"
+            nudge = "💡 با این موجودی می‌تونی محصولات خوبی بخری!"
 
         streak_line = ""
         if mem_n > 0:
             streak_line = f"🧠 حافظهٔ گفتگو: {mem_n} پیام — هرمسا یادش هست!\n"
 
+        # v3.5.0: اگر بونوس روزانه آماده است، کاربر را دعوت کن
+        try:
+            from database import daily_bonus_state as _dbs
+            _dbd = await _dbs(user["user_id"])
+            bonus_line = ("🎁 بونوس روزانه‌ات آماده‌ست! «💰 کیف پول» → 🎁 بزن\n"
+                          if _dbd.get("claimable") else "")
+        except Exception:
+            bonus_line = ""
+
         welcome = (
             f"👋 خوش برگشتی {user['first_name'] or 'عزیز'}! 😊\n\n"
             f"💰 موجودی: **{user['credits']:,} کردیت ≈ {usd:.2f}$**\n"
-            + streak_line +
+            + streak_line + bonus_line +
             f"\n{nudge}\n\n"
+            f"🆘 پشتیبانی: {_sup3} · 📚 راهنما: دکمهٔ «❓ راهنما»\n"
             f"👇 از کجا شروع کنیم؟"
         )
 
@@ -142,8 +198,8 @@ async def cmd_start_payload(message: Message):
 @router.callback_query(F.data == "main_menu")
 async def back_to_main(callback, state: FSMContext):
     await state.clear()
-    from handlers.admin import is_member_of_force_channel, join_gate_kb, is_admin
     from database import get_setting
+    from handlers.admin import is_admin, is_member_of_force_channel, join_gate_kb
     if not is_admin(callback.from_user.id) and \
             (await get_setting("maintenance", "0")) == "1":
         from utils import edit_safe as _es

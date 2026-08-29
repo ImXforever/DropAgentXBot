@@ -7,13 +7,12 @@ PAYOUT_API_URL; keeping signing outside this process avoids putting private
 keys in the bot container.
 """
 
+import os
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-import os
 from typing import Any
 
 import httpx
-
 
 # keccak256("Transfer(address,address,uint256)")
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -24,7 +23,7 @@ class Verification:
     verified: bool
     network: str
     txid: str
-    amount_usdt: Decimal = Decimal("0")
+    amount_usdt: Decimal = Decimal(0)
     confirmations: int = 0
     sender: str = ""
     reason: str = ""
@@ -38,7 +37,7 @@ def _dec(value: Any) -> Decimal:
     try:
         return Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
-        return Decimal("0")
+        return Decimal(0)
 
 
 def _required_confirmations(network: str) -> int:
@@ -130,7 +129,7 @@ async def _verify_evm(network: str, txid: str, expected: Decimal,
         return Verification(False, network, txid, confirmations=confirmations,
                             reason="USDT token contract is not configured")
     target = _norm_address(wallet)
-    total = Decimal("0")
+    total = Decimal(0)
     sender = ""
     for log in receipt.get("logs") or []:
         topics = log.get("topics") or []
@@ -180,7 +179,7 @@ async def _verify_tron(txid: str, expected: Decimal, wallet: str) -> Verificatio
     if not token:
         return Verification(False, "trx", txid, confirmations=confirmations,
                             reason="USDT token contract is not configured")
-    total = Decimal("0")
+    total = Decimal(0)
     sender = ""
     for event in events:
         if event.get("event_name") != "Transfer":

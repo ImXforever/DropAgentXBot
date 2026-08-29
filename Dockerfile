@@ -1,9 +1,13 @@
-FROM python:3.12-slim
+# mirror.gcr.io: هنگِ چند دقیقه‌ای در «Building the image» معمولاًpull-rate-limit
+# ناشناس Docker Hub است — مخصوصاً وقتی چند دپلوی پشت‌سرهم می‌زنی. GCR میرور آزاد است.
+FROM mirror.gcr.io/library/python:3.12-slim
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PIP_RETRIES=5
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -22,8 +26,13 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
 # full app incl. web_admin.py + web/ templates + memory/skills/a2a modules
 COPY . .
 
-ENV WEB_PORT=8080
+ENV WEB_PORT=8080 \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 8080
+
+# Railway healthcheck — /healthz is unauthenticated and returns {ok, version}.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=5 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5).status==200 else 1)"
 
 CMD ["python", "bot.py"]

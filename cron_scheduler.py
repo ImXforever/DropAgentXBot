@@ -17,11 +17,9 @@ Features:
 
 import asyncio
 import logging
-import os
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +69,7 @@ def cron_matches(expr: str, dt: datetime) -> bool:
             dt.weekday() in weekdays)
 
 
-def parse_duration(expr: str) -> Optional[int]:
+def parse_duration(expr: str) -> int | None:
     """Parse '5m', '2h', '30s', '1d' into seconds."""
     m = re.match(r"^(\d+)\s*(s|m|h|d)$", expr.strip().lower())
     if not m:
@@ -82,7 +80,7 @@ def parse_duration(expr: str) -> Optional[int]:
     return val * multipliers.get(unit, 60)
 
 
-def parse_at_time(expr: str) -> Optional[tuple[int, int]]:
+def parse_at_time(expr: str) -> tuple[int, int] | None:
     """Parse '09:00' into (hour, minute)."""
     m = re.match(r"^(\d{1,2}):(\d{1,2})$", expr.strip())
     if not m:
@@ -110,6 +108,7 @@ JOB_CATEGORIES = ("report", "reminder", "social", "schedule", "custom")
 # =========================================================
 
 from database import get_db
+
 
 async def _ensure_table():
     from database import raw_db
@@ -179,7 +178,7 @@ async def job_list(owner_id: int = 0, enabled_only: bool = True) -> list[dict]:
         return [dict(r) for r in await cursor.fetchall()]
 
 
-async def job_get(job_id: int) -> Optional[dict]:
+async def job_get(job_id: int) -> dict | None:
     async with get_db() as db:
         cursor = await db.execute("SELECT * FROM cron_jobs WHERE id = ?", (job_id,))
         row = await cursor.fetchone()
@@ -212,7 +211,7 @@ async def job_delete(job_id: int) -> bool:
         return c.rowcount > 0
 
 
-async def job_run_now(job_id: int) -> Optional[dict]:
+async def job_run_now(job_id: int) -> dict | None:
     """Manually trigger a job immediately."""
     job = await job_get(job_id)
     if not job:
@@ -277,8 +276,8 @@ async def _execute_job(job: dict) -> dict:
 
     if action == ACTION_AI_CHAT:
         # Send message to AI and return response
-        from hermes_engine import hermes_chat
         from ai_agent import AI_SYSTEM_PROMPT
+        from hermes_engine import hermes_chat
         model = job.get("model_override") or ""
         system = job.get("skill_override") or AI_SYSTEM_PROMPT
         response = await hermes_chat(payload or "گزارش روزانه را تهیه کن",

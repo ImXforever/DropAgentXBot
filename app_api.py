@@ -42,8 +42,9 @@ FEED_LIMIT = 8
 
 
 def register(app):
-    from fastapi import HTTPException, Request, UploadFile, File
+    from fastapi import File, HTTPException, Request, UploadFile
     from pydantic import BaseModel
+
     from config import config as cfg
 
     # ---------------------------------------------------------- auth ----
@@ -148,7 +149,6 @@ def register(app):
         u = await get_user(uid)
         if not u:
             # ghost user — create on the fly
-            import database as _dbm
             tg_user = None
             try:
                 t = __import__("fastapi").__dict__.get("_tg", None)
@@ -198,7 +198,6 @@ def register(app):
         code = f"{_random.randint(100000, 999999)}"
         _login_codes[body.telegram_id] = (code, time.time() + 300)
         try:
-            import asyncio as _aio
             bot_ref = _get_bot_ref()
             if bot_ref:
                 await bot_ref.send_message(
@@ -234,7 +233,7 @@ def register(app):
         _login_codes.pop(body.telegram_id, None)
         _verify_fails.pop(body.telegram_id, None)
         uid = body.telegram_id
-        from database import get_user, create_user
+        from database import get_user
         u = await get_user(uid)
         if not u or u.get("is_banned"):
             raise HTTPException(404, "حساب یافت نشد")
@@ -254,7 +253,7 @@ def register(app):
     async def _check_mint_budget(amount: int) -> tuple[bool, str]:
         """Check if free-credit distribution is within monthly budget.
         Returns (allowed, message)."""
-        from database import get_db, get_setting, set_setting
+        from database import get_setting, set_setting
         month_key = time.strftime("%Y-%m")
         budget = int(float(await get_setting("mint_cap_monthly", "50000")))
         cur_key = await get_setting("mint_month", "")
@@ -269,9 +268,7 @@ def register(app):
 
     def _get_commission_rate(uid: int) -> float:
         """2-C: commission based on seller plan."""
-        import asyncio
         try:
-            from database import get_db
             # can't await here — use sync fallback
             pass
         except Exception:
@@ -289,8 +286,9 @@ def register(app):
     def _process_and_save_image(raw: bytes, pid: int, img_type: str) -> str:
         """Center-crop + resize to exact dims, save as optimized JPEG.
         VPS-ready: uses cfg.UPLOAD_DIR (relative or absolute)."""
-        from PIL import Image, ImageOps
         import io as _io
+
+        from PIL import Image, ImageOps
         w, h = IMG_SIZES[img_type]
         img = Image.open(_io.BytesIO(raw))
         img = ImageOps.exif_transpose(img)
@@ -506,7 +504,7 @@ def register(app):
 
     @app.get("/api/app/product/{pid}")
     async def app_product(pid: int, request: Request):
-        from database import get_db, product_rating
+        from database import get_db
         uid = None
         try:
             uid = _uid(request)
@@ -728,7 +726,7 @@ def register(app):
     @app.get("/api/app/wallet")
     async def app_wallet(request: Request):
         uid = _uid(request)
-        from database import get_user, get_db
+        from database import get_db, get_user
         u = await get_user(uid)
         async with get_db() as db:
             cur = await db.execute(
@@ -931,8 +929,8 @@ def register(app):
         text = str(body.get("text", "")).strip()[:800]
         if not text:
             raise HTTPException(400)
-        from ai_agent import smart_messages, AI_SYSTEM_PROMPT
-        from hermes_engine import hermes_chat_stream, HermesEngineError, redact_secrets
+        from ai_agent import AI_SYSTEM_PROMPT, smart_messages
+        from hermes_engine import HermesEngineError, hermes_chat_stream, redact_secrets
         async def _noop(_acc):  # engine awaits on_delta; a sync lambda breaks it
             return None
         msgs = await smart_messages(uid, AI_SYSTEM_PROMPT, text)
@@ -941,7 +939,7 @@ def register(app):
         except HermesEngineError as e:
             logger.warning("mini-app agent engine error (uid=%s): %s", uid, e)
             raise HTTPException(502, str(e))
-        except Exception as e:  # noqa: BLE001 — 500s are invisible on Railway
+        except Exception as e:
             logger.exception("mini-app agent failed (uid=%s)", uid)
             raise HTTPException(502, redact_secrets(
                 f"engine failure: {type(e).__name__}: {e}")[:300])

@@ -1,10 +1,11 @@
-import aiosqlite
 import asyncio
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
+
+import aiosqlite
+
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -207,6 +208,7 @@ async def init_db():
                 created_at REAL DEFAULT (strftime('%s','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_chat_msg_user ON chat_messages(user_id, id);
+            CREATE INDEX IF NOT EXISTS idx_chat_msg_session ON chat_messages(session_id);
 
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,6 +249,91 @@ async def init_db():
                 FOREIGN KEY (product_id) REFERENCES products(id)
             );
         """)
+        # --- v3.5.0: کدهای هدیه کمپینی (برای تبلیغات) ---
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                code TEXT PRIMARY KEY,
+                credits INTEGER NOT NULL,
+                max_uses INTEGER NOT NULL DEFAULT 100,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER,
+                expires_at REAL DEFAULT 0,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS promo_redemptions (
+                code TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at REAL DEFAULT (strftime('%s','now')),
+                UNIQUE(code, user_id)
+            )
+            """
+        )
+        # --- v4.0.0: تیکت پشتیبانی ---
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                category TEXT DEFAULT 'general',
+                subject TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                created_at REAL DEFAULT (strftime('%s','now')),
+                updated_at REAL DEFAULT (strftime('%s','now'))
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ticket_msgs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_id INTEGER NOT NULL,
+                sender_id INTEGER NOT NULL,
+                sender_role TEXT DEFAULT 'user',
+                body TEXT NOT NULL,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            )
+            """
+        )
+        # --- v4.0.0: ماموریت‌ها + گزارش تخلف ---
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS quests (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                quest_type TEXT NOT NULL,
+                target INTEGER NOT NULL,
+                reward_credits INTEGER NOT NULL,
+                active INTEGER DEFAULT 1
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS quest_claims (
+                quest_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                claimed_at REAL DEFAULT (strftime('%s','now')),
+                UNIQUE(quest_id, user_id)
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reporter_id INTEGER NOT NULL,
+                target TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                created_at REAL DEFAULT (strftime('%s','now'))
+            )
+            """
+        )
 
         # --- lightweight migrations for existing DBs ---
         for stmt in (
@@ -262,6 +349,15 @@ async def init_db():
             "ALTER TABLE products ADD COLUMN link TEXT",
             "ALTER TABLE purchases ADD COLUMN payment_method TEXT DEFAULT 'credits'",
             "ALTER TABLE products ADD COLUMN status TEXT DEFAULT 'approved'",
+            # v2.0: نگه‌داری فایل با file_id تلگرام (صرفه‌جویی حجم Volume)
+            "ALTER TABLE products ADD COLUMN file_fileid TEXT",
+            # v0.9.9 «روژن»: purchases.created_at — لیدربورد/تحلیل به آن ارجاع می‌دادند
+            # ولی ستون هرگز ساخته نشده بود (باگ نهفته ۵۰۰ در لیدربورد خریدارها)
+            "ALTER TABLE purchases ADD COLUMN created_at REAL",
+            # v3.5.0: رشد — بونوس روزانه/استریک + ردیابی آخرین فعالیت (win-back)
+            "ALTER TABLE users ADD COLUMN last_daily_bonus REAL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN daily_streak INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN last_seen REAL DEFAULT 0",
             # --- engagement counters (DropAgentX Mini App) ---
             "ALTER TABLE products ADD COLUMN impressions INTEGER DEFAULT 0",
             "ALTER TABLE products ADD COLUMN views INTEGER DEFAULT 0",
@@ -359,7 +455,6 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_comments_product ON product_comments(product_id)",
             # --- V3-4 session persistence: session_id on chat_messages ---
             "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER DEFAULT NULL",
-            "CREATE INDEX IF NOT EXISTS idx_chat_msg_session ON chat_messages(session_id)",
         ):
             try:
                 await db.execute(stmt)
@@ -367,6 +462,12 @@ async def init_db():
             except Exception:
                 pass
 
+        await db.commit()
+
+    # v0.9.9 «روژن»: بک‌فیل purchases.created_at از purchased_at (ردیف‌های قدیمی)
+    async with raw_db() as db:
+        await db.execute(
+            "UPDATE purchases SET created_at = purchased_at WHERE created_at IS NULL")
         await db.commit()
 
     # --- concurrency tuning (persists with the db file) ---
@@ -397,8 +498,8 @@ def _tune(db):
 
 # ---------- singleton connection (SQLite best practice: 1 writer thread) ----------
 
-_DB: Optional[aiosqlite.Connection] = None
-_DB_SRC: Optional[str] = None  # the DB_PATH the open connection was created for
+_DB: aiosqlite.Connection | None = None
+_DB_SRC: str | None = None  # the DB_PATH the open connection was created for
 _DBLock = asyncio.Lock()
 
 
@@ -550,7 +651,7 @@ _UCACHE_TTL = 45.0
 # The DB_PATH the user cache entries belong to. If it differs from the current
 # DB_PATH the cache is bypassed so cross-database (e.g. per-test) reuse of the
 # same user_id can never return a user that lives in a different database.
-_USER_CACHE_PATH: Optional[str] = None
+_USER_CACHE_PATH: str | None = None
 
 
 def invalidate_user(user_id: int):
@@ -567,7 +668,7 @@ def escape_like(s: str) -> str:
              .replace("_", bs + "_"))
 
 
-async def get_user(user_id: int) -> Optional[dict]:
+async def get_user(user_id: int) -> dict | None:
     import time as _t
     global _USER_CACHE_PATH
     path = os.path.abspath(DB_PATH)
@@ -620,8 +721,7 @@ async def create_user(user_id: int, username: str = None, first_name: str = None
             "mint cap hit: reduced welcome to %d for user %s", welcome, user_id)
 
     create_user._used += welcome
-    if welcome <= 0:
-        welcome = 0  # no credits this month but still create account
+    welcome = max(0, welcome)  # no credits this month but still create account
 
     async with raw_db() as db:
         await db.execute(
@@ -650,8 +750,9 @@ async def update_credits(user_id: int, amount: int, tx_type: str, description: s
                 (amount, amount, user_id)
             )
         else:
+            # F3-0.6.0: کف موجودی صفر — کسر بزرگ‌تر از موجودی موجودی را منفی نکند
             await db.execute(
-                "UPDATE users SET credits = credits + ?, total_spent = total_spent + ? WHERE user_id = ?",
+                "UPDATE users SET credits = MAX(0, credits + ?), total_spent = total_spent + ? WHERE user_id = ?",
                 (amount, abs(amount), user_id)
             )
         await db.execute(
@@ -730,7 +831,7 @@ async def search_products(query: str = "", category: str = "", limit: int = 20, 
         return [dict(r) for r in rows]
 
 
-async def get_product(product_id: int) -> Optional[dict]:
+async def get_product(product_id: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute(
             """SELECT p.*, u.username as creator_username, u.first_name as creator_name
@@ -946,7 +1047,7 @@ async def count_pending_products() -> int:
         return (await cur.fetchone())[0]
 
 
-async def set_product_status(product_id: int, status: str, reviewed_by: int) -> Optional[dict]:
+async def set_product_status(product_id: int, status: str, reviewed_by: int) -> dict | None:
     if status not in ("approved", "rejected"):
         return None
     async with get_db() as db:
@@ -981,7 +1082,7 @@ async def set_referred_by(user_id: int, referrer_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-async def get_referrer(user_id: int) -> Optional[int]:
+async def get_referrer(user_id: int) -> int | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT referred_by FROM users WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
@@ -1097,10 +1198,9 @@ async def set_hunter_perm(user_id: int, perm_key: str, value: bool, granted_by: 
     from database import get_db
     async with get_db() as db:
         await db.execute(
-            """INSERT INTO hunter_permissions (user_id, {}, granted_by)
+            f"""INSERT INTO hunter_permissions (user_id, {perm_key}, granted_by)
                VALUES (?,?,?)
-               ON CONFLICT(user_id) DO UPDATE SET {}=excluded.{}""".format(
-                perm_key, perm_key, perm_key),
+               ON CONFLICT(user_id) DO UPDATE SET {perm_key}=excluded.{perm_key}""",
             (user_id, int(value), granted_by))
         await db.commit()
 
@@ -1252,14 +1352,14 @@ async def create_coupon(owner_id: int, code: str, percent: int, max_uses: int) -
             return None
 
 
-async def get_coupon(code: str) -> Optional[dict]:
+async def get_coupon(code: str) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM coupons WHERE code = ?", ((code or "").upper(),))
         row = await cursor.fetchone()
         return dict(row) if row else None
 
 
-async def get_coupon_by_id(coupon_id: int) -> Optional[dict]:
+async def get_coupon_by_id(coupon_id: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM coupons WHERE id = ?", (coupon_id,))
         row = await cursor.fetchone()
@@ -1345,7 +1445,7 @@ async def upsert_custom_bot(user_id: int, api_key: str, base_url: str, model: st
         await db.commit()
 
 
-async def get_custom_bot(user_id: int) -> Optional[dict]:
+async def get_custom_bot(user_id: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM custom_bots WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
@@ -1365,27 +1465,36 @@ async def set_custom_bot_active(user_id: int, active: bool) -> bool:
 # ---------- Conversation memory (Hermes-style persistent sessions) ----------
 
 MEMORY_TURNS = 8       # recent turns injected into the prompt
-MEMORY_MAX_ROWS = 60   # hard cap per user
+# v2.0 capacity: سقف ردیف‌ها و کاراکترها از کانفیگ — هدف 8000 کاربر روی 500MB
+MEMORY_MAX_ROWS = max(10, int(getattr(config, "CHAT_KEEP_ROWS", 25)))
+MEMORY_USER_CAP = max(200, int(getattr(config, "CHAT_USER_CAP", 2000)))
+MEMORY_ASSISTANT_CAP = max(200, int(getattr(config, "CHAT_ASSISTANT_CAP", 1500)))
+MEMORY_FTS_USERS_ONLY = bool(getattr(config, "CHAT_FTS_USERS_ONLY", True))
 
 
 async def mem_add(user_id: int, role: str, content: str):
     if role not in ("user", "assistant") or not content:
         return
     async with get_db() as db:
+        # v2.0: سقف کاراکتر نقش‌محور (قبلاً 6000 برای هر دو نقش → 92٪ حجم DB)
+        cap = MEMORY_USER_CAP if role == "user" else MEMORY_ASSISTANT_CAP
+        content = content[:cap]
         cursor = await db.execute(
             "INSERT INTO chat_messages (user_id, role, content) VALUES (?, ?, ?)",
-            (user_id, role, content[:6000]),
+            (user_id, role, content),
         )
         msg_id = cursor.lastrowid
-        # FTS index (best-effort; search feature degrades gracefully)
-        try:
-            await db.execute(
-                "INSERT INTO chat_fts (content, user_id, msg_id, session_id) "
-                "VALUES (?, ?, ?, NULL)",
-                (content[:6000], user_id, msg_id),
-            )
-        except Exception:
-            pass
+        # FTS index — v2.0: فقط پیام کاربر ایندکس می‌شود (پاسخ‌ها نصف حجم بودند؛
+        # جستجوی تاریخچه عملاً روی گفته‌های خود کاربر معنادار است)
+        if (not MEMORY_FTS_USERS_ONLY) or role == "user":
+            try:
+                await db.execute(
+                    "INSERT INTO chat_fts (content, user_id, msg_id, session_id) "
+                    "VALUES (?, ?, ?, NULL)",
+                    (content, user_id, msg_id),
+                )
+            except Exception:
+                pass
         await db.execute(
             """DELETE FROM chat_messages WHERE user_id = ? AND id NOT IN (
                  SELECT id FROM chat_messages WHERE user_id = ?
@@ -1584,7 +1693,7 @@ async def seed_content():
         await db.commit()
 
 
-async def get_content(key: str) -> Optional[dict]:
+async def get_content(key: str) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM content_pages WHERE key = ?", (key,))
         row = await cursor.fetchone()
@@ -1716,14 +1825,14 @@ async def create_deposit(user_id: int, network: str, txid: str, amount_usdt: flo
             return None
 
 
-async def get_deposit(deposit_id: int) -> Optional[dict]:
+async def get_deposit(deposit_id: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM deposits WHERE id = ?", (deposit_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
 
 
-async def set_deposit_status(deposit_id: int, status: str, reviewed_by: int) -> Optional[dict]:
+async def set_deposit_status(deposit_id: int, status: str, reviewed_by: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute(
             "UPDATE deposits SET status = ?, reviewed_by = ?, reviewed_at = strftime('%s','now') "
@@ -1770,14 +1879,14 @@ async def create_withdrawal(user_id: int, network: str, address: str,
         return cursor.lastrowid
 
 
-async def get_withdrawal(wd_id: int) -> Optional[dict]:
+async def get_withdrawal(wd_id: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute("SELECT * FROM withdrawals WHERE id = ?", (wd_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
 
 
-async def set_withdrawal_status(wd_id: int, status: str, reviewed_by: int) -> Optional[dict]:
+async def set_withdrawal_status(wd_id: int, status: str, reviewed_by: int) -> dict | None:
     async with raw_db() as db:
         cursor = await db.execute(
             "UPDATE withdrawals SET status = ?, reviewed_by = ?, reviewed_at = strftime('%s','now') "
@@ -1828,7 +1937,7 @@ async def record_deposit_verification_attempt(deposit_id: int, reason: str = "")
         )
 
 
-async def approve_verified_deposit(deposit_id: int, reviewed_by: int = 0) -> Optional[dict]:
+async def approve_verified_deposit(deposit_id: int, reviewed_by: int = 0) -> dict | None:
     """Atomically approve a verified deposit and mint its credits once."""
     async with raw_db() as db:
         cur = await db.execute(
@@ -1864,7 +1973,7 @@ async def approve_verified_deposit(deposit_id: int, reviewed_by: int = 0) -> Opt
         return dict(row) if row else None
 
 
-async def mark_withdrawal_paid(wd_id: int, txid: str, reviewed_by: int = 0) -> Optional[dict]:
+async def mark_withdrawal_paid(wd_id: int, txid: str, reviewed_by: int = 0) -> dict | None:
     """Atomically mark a provider-confirmed payout as paid."""
     async with raw_db() as db:
         cur = await db.execute("SELECT user_id FROM withdrawals WHERE id=?", (wd_id,))
@@ -1897,7 +2006,7 @@ async def record_payout_error(wd_id: int, reason: str) -> None:
         )
 
 
-async def approve_deposit_manual(deposit_id: int, reviewed_by: int = 0) -> Optional[dict]:
+async def approve_deposit_manual(deposit_id: int, reviewed_by: int = 0) -> dict | None:
     """Manual admin approval with status change and credit mint in one txn."""
     async with raw_db() as db:
         cur = await db.execute(
@@ -1929,7 +2038,7 @@ async def approve_deposit_manual(deposit_id: int, reviewed_by: int = 0) -> Optio
         return dict(row) if row else None
 
 
-async def reject_withdrawal_and_refund(wd_id: int, reviewed_by: int = 0) -> Optional[dict]:
+async def reject_withdrawal_and_refund(wd_id: int, reviewed_by: int = 0) -> dict | None:
     """Reject a held withdrawal and release the hold atomically."""
     async with raw_db() as db:
         cur = await db.execute(
@@ -1959,3 +2068,763 @@ async def reject_withdrawal_and_refund(wd_id: int, reviewed_by: int = 0) -> Opti
         row = await cur.fetchone()
         invalidate_user(wd["user_id"])
         return dict(row) if row else None
+
+
+# ══════════════════════════════════════════════════════════════════
+# v2.0 — Capacity & Maintenance (هدف: 8000+ کاربر روی سقف 500MB)
+# ابزارهای ادمین: مانیتور حجم، پاک‌سازی، VACUUM، آرشیو، آمار رشد/فروش
+# و صف بررسی گزینه‌به‌گزینه‌ی تسک‌ها
+# ══════════════════════════════════════════════════════════════════
+
+async def db_size_bytes() -> int:
+    """حجم فعلی فایل دیتابیس + WAL (بایت)."""
+    total = 0
+    for p in (DB_PATH, DB_PATH + "-wal", DB_PATH + "-shm"):
+        try:
+            total += os.path.getsize(p)
+        except OSError:
+            pass
+    return total
+
+
+async def db_counts() -> dict:
+    """شمارش کلیدویست برای داشبورد ظرفیت ادمین."""
+    async with raw_db() as db:
+        out = {}
+        for key, sql in (
+            ("users", "SELECT COUNT(*) FROM users"),
+            ("products", "SELECT COUNT(*) FROM products WHERE is_active=1"),
+            ("purchases", "SELECT COUNT(*) FROM purchases"),
+            ("chat_messages", "SELECT COUNT(*) FROM chat_messages"),
+            ("transactions", "SELECT COUNT(*) FROM transactions"),
+            ("pending_task_reviews", "SELECT COUNT(*) FROM task_completions WHERE status='pending'"),
+            ("pending_deposits", "SELECT COUNT(*) FROM deposits WHERE status='pending'"),
+            ("pending_withdrawals", "SELECT COUNT(*) FROM withdrawals WHERE status='pending'"),
+        ):
+            try:
+                cur = await db.execute(sql)
+                out[key] = (await cur.fetchone())[0]
+            except Exception:
+                out[key] = -1
+        return out
+
+
+async def chat_sweep_dormant(days: int = None, min_earned: int = 0) -> int:
+    """حذف حافظه چتِ کاربران راکد (بدون درآمد و قدیمی‌تر از days روز).
+    ردیف‌های users/اعتبار دست‌نخورده می‌ماند — فقط لاگ چت پاک می‌شود."""
+    days = days or int(getattr(config, "SWEEP_DORMANT_DAYS", 45))
+    cutoff = time.time() - days * 86400
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT COUNT(*) FROM chat_messages WHERE user_id IN (
+                 SELECT user_id FROM users
+                 WHERE created_at < ? AND COALESCE(total_earned,0) <= ?)""",
+            (cutoff, min_earned))
+        n = (await cur.fetchone())[0]
+        if n == 0:
+            return 0
+        await db.execute(
+            """DELETE FROM chat_messages WHERE user_id IN (
+                 SELECT user_id FROM users
+                 WHERE created_at < ? AND COALESCE(total_earned,0) <= ?)""",
+            (cutoff, min_earned))
+        try:
+            await db.execute(
+                """DELETE FROM chat_fts WHERE user_id IN (
+                     SELECT user_id FROM users
+                     WHERE created_at < ? AND COALESCE(total_earned,0) <= ?)""",
+                (cutoff, min_earned))
+        except Exception:
+            pass
+        await db.commit()
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return n
+
+
+async def archive_old_transactions(days: int = None, keep: int = 5000) -> int:
+    """آرشیو و حذف تراکنش‌های خیلی قدیمی (خروجی JSON در data/archives/).
+    خلاصه ماهانه درآمد/هزینه هر کاربر حفظ می‌شود (تغییر مجموع اعتبار رخ نمی‌دهد)."""
+    days = days or int(getattr(config, "TX_ARCHIVE_DAYS", 0) or 0)
+    if days <= 0:
+        return 0
+    cutoff = time.time() - days * 86400
+    os.makedirs(os.path.join("data", "archives"), exist_ok=True)
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id, user_id, amount, tx_type, description, created_at "
+            "FROM transactions WHERE created_at < ? ORDER BY id LIMIT ?",
+            (cutoff, keep))
+        rows = [dict(r) for r in await cur.fetchall()]
+        if not rows:
+            return 0
+        import json as _json
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = os.path.join("data", "archives", f"transactions-{stamp}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(rows, f, ensure_ascii=False, indent=1)
+        ids = [r["id"] for r in rows]
+        await db.executemany("DELETE FROM transactions WHERE id = ?", [(i,) for i in ids])
+        await db.commit()
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return len(rows)
+
+
+async def vacuum_now() -> tuple[int, int]:
+    """کمپکت‌سازی دیتابیس. خروجی: (حجم قبل، حجم بعد) به بایت."""
+    before = await db_size_bytes()
+    async with raw_db() as db:
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        await db.commit()
+        await db.execute("VACUUM")
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return before, await db_size_bytes()
+
+
+async def growth_stats() -> dict:
+    """رشد کاربران و فروش برای داشبورد ادمین."""
+    now = time.time()
+    async with raw_db() as db:
+        out = {}
+        for key, days in (("new_24h", 1), ("new_7d", 7), ("new_30d", 30)):
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE created_at >= ?", (now - days * 86400,))
+            out[key] = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(price_credits),0) FROM purchases WHERE purchased_at >= ?",
+            (now - 30 * 86400,))
+        out["sales_30d_n"], out["sales_30d_sum"] = await cur.fetchone()
+        cur = await db.execute("SELECT COUNT(*) FROM users")
+        out["users_total"] = (await cur.fetchone())[0]
+        return out
+
+
+async def top_sellers(limit: int = 10) -> list[dict]:
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT p.creator_id,
+                      COALESCE(u.first_name, u.username, 'User') AS name,
+                      COALESCE(SUM(p.sales_count),0) AS sales,
+                      COALESCE(SUM(p.sales_count * p.price_credits),0) AS revenue
+               FROM products p LEFT JOIN users u ON u.user_id = p.creator_id
+               GROUP BY p.creator_id ORDER BY revenue DESC LIMIT ?""", (limit,))
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def product_health() -> dict:
+    async with raw_db() as db:
+        out = {}
+        for key, sql in (
+            ("active", "SELECT COUNT(*) FROM products WHERE is_active=1"),
+            ("no_file", "SELECT COUNT(*) FROM products WHERE is_active=1 AND (file_path IS NULL OR file_path='')"),
+            ("no_desc", "SELECT COUNT(*) FROM products WHERE is_active=1 AND (description IS NULL OR description='')"),
+            ("no_cover", "SELECT COUNT(*) FROM products WHERE is_active=1 AND (photo_path IS NULL OR photo_path='')"),
+            ("dangling", """SELECT COUNT(*) FROM products p WHERE p.is_active=1 AND p.file_path IS NOT NULL
+                              AND p.file_path != '' AND p.file_fileid IS NULL
+                              AND NOT EXISTS (SELECT 1 FROM pragma_database_list)"""),
+        ):
+            try:
+                cur = await db.execute(sql)
+                out[key] = (await cur.fetchone())[0]
+            except Exception:
+                out[key] = -1
+        # dangling واقعی: فایل روی دیسک نیست و file_id هم ندارد
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM products WHERE is_active=1 AND (file_path IS NOT NULL AND file_path != '') AND (file_fileid IS NULL OR file_fileid='')")
+        on_disk_only = (await cur.fetchone())[0]
+        out["disk_only"] = on_disk_only
+        out.pop("dangling", None)
+        return out
+
+
+async def revenue_30d(days: int = 30) -> dict:
+    now = time.time()
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT COUNT(*), COALESCE(SUM(price_credits),0) FROM purchases
+               WHERE purchased_at >= ?""", (now - days * 86400,))
+        n, gross = await cur.fetchone()
+        rate = float(getattr(config, "COMMISSION_RATE", 0.10))
+        return {"sales": n, "gross_credits": gross, "commission_credits": int(gross * rate), "days": days}
+
+
+# ---------- v2.0: صف بررسی گزینه‌به‌گزینه‌ی تسک‌ها ----------
+
+async def count_pending_task_reviews() -> int:
+    async with raw_db() as db:
+        cur = await db.execute("SELECT COUNT(*) FROM task_completions WHERE status='pending'")
+        return (await cur.fetchone())[0]
+
+
+async def get_task_review_queue(limit: int = 20) -> list[dict]:
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT tc.id AS cid, tc.user_id, tc.task_id, tc.completed_at,
+                      t.title AS task_title, t.credits_reward,
+                      COALESCE(u.first_name, u.username, 'User') AS user_name
+               FROM task_completions tc
+               LEFT JOIN tasks t ON t.id = tc.task_id
+               LEFT JOIN users u ON u.user_id = tc.user_id
+               WHERE tc.status = 'pending'
+               ORDER BY tc.id ASC LIMIT ?""", (limit,))
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_task_review_item(cid: int) -> dict | None:
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT tc.id AS cid, tc.user_id, tc.task_id, tc.completed_at,
+                      t.title AS task_title, t.credits_reward,
+                      COALESCE(u.first_name, u.username, 'User') AS user_name
+               FROM task_completions tc
+               LEFT JOIN tasks t ON t.id = tc.task_id
+               LEFT JOIN users u ON u.user_id = tc.user_id
+               WHERE tc.id = ?""", (cid,))
+        r = await cur.fetchone()
+        return dict(r) if r else None
+
+
+async def review_task_approve(cid: int) -> dict | None:
+    """تأیید یک تکمیل: status='completed' + پرداخت پاداش. خروجی: ردیف برای اطلاع‌رسانی."""
+    item = await get_task_review_item(cid)
+    if not item:
+        return None
+    async with raw_db() as db:
+        cur = await db.execute(
+            "UPDATE task_completions SET status='completed' WHERE id=? AND status='pending'", (cid,))
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+    await update_credits(item["user_id"], int(item["credits_reward"] or 0), "task_completion",
+                         f"Task approved by admin: {item['task_title']}", item["task_id"])
+    return item
+
+
+async def review_task_reject(cid: int) -> dict | None:
+    """رد یک تکمیل: status='rejected'، آزادسازی ظرفیت تسک، بدون پاداش."""
+    item = await get_task_review_item(cid)
+    if not item:
+        return None
+    async with raw_db() as db:
+        cur = await db.execute(
+            "UPDATE task_completions SET status='rejected' WHERE id=? AND status='pending'", (cid,))
+        await db.execute(
+            "UPDATE tasks SET current_completions = MAX(current_completions - 1, 0) WHERE id=?",
+            (item["task_id"],))
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+    return item
+
+
+# ══════════════════════════════════════════════════════════════════
+# v3.5.0 — Growth: بونوس روزانه/استریک · کد هدیه کمپینی · قرعه‌کشی · win-back
+# ══════════════════════════════════════════════════════════════════
+
+async def daily_bonus_state(user_id: int) -> dict:
+    """v3.5.0: وضعیت بونوس روزانه — claimable/streak/ثانیه تا دعوت بعدی."""
+    import time as _t
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT last_daily_bonus, daily_streak FROM users WHERE user_id = ?", (user_id,))
+        row = await cur.fetchone()
+    if not row:
+        return {"claimable": False, "streak": 0, "next_in": 0}
+    last, streak = (row[0] or 0), (row[1] or 0)
+    elapsed = _t.time() - last
+    claimable = elapsed >= 20 * 3600   # ۲۰ساعت (نه ۲۴ — انعطاف برای کاربر واقعی)
+    next_in = max(0, int(20 * 3600 - elapsed))
+    return {"claimable": claimable, "streak": streak, "next_in": next_in}
+
+
+async def claim_daily_bonus(user_id: int, base: int = 15, step: int = 5, cap: int = 50):
+    """v3.5.0: دریافت بونوس روزانه — استریک تا ۴۶ساعت زنده می‌ماند وگرنه ریست.
+    برگشت: (مقدار، استریک جدید) یا (0, استریک) اگر هنوز زمانش نرسیده."""
+    import time as _t
+    now = _t.time()
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT last_daily_bonus, daily_streak FROM users WHERE user_id = ?", (user_id,))
+        row = await cur.fetchone()
+        if not row:
+            return (0, 0)
+        last, streak = (row[0] or 0), (row[1] or 0)
+        elapsed = now - last
+        if elapsed < 20 * 3600:
+            return (0, streak)
+        # استریک: بین ۲۰ تا ۴۶ ساعت زنده؛ بیشتر = ریست
+        new_streak = (streak + 1) if elapsed <= 46 * 3600 else 1
+        amount = min(base + (new_streak - 1) * step, cap)
+        # گارد رقابتی: فقط اگر last_daily_bonus همان مقدار قبلی است
+        cur = await db.execute(
+            "UPDATE users SET last_daily_bonus = ?, daily_streak = ? "
+            "WHERE user_id = ? AND last_daily_bonus = ?",
+            (now, new_streak, user_id, last))
+        await db.commit()
+        if cur.rowcount == 0:
+            return (0, streak)
+    await update_credits(user_id, amount, "daily_bonus",
+                         f"بونوس روزانه (استریک {new_streak})")
+    return (amount, new_streak)
+
+
+async def upsert_rate(product_id: int, buyer_id: int, stars: int) -> bool:
+    """v3.5.0: ثبت/به‌روزرسانی امتیاز خریدار (۱-۵) — در-بات."""
+    stars = max(1, min(5, int(stars)))
+    async with raw_db() as db:
+        await db.execute("DELETE FROM reviews WHERE product_id = ? AND buyer_id = ?",
+                         (product_id, buyer_id))
+        await db.execute(
+            "INSERT INTO reviews (product_id, buyer_id, stars) VALUES (?, ?, ?)",
+            (product_id, buyer_id, stars))
+        await db.commit()
+    return True
+
+
+async def create_promo(code: str, credits: int, max_uses: int, days: int, created_by: int) -> bool:
+    """v3.5.0: ساخت کد هدیه کمپینی — days=0 یعنی بدون انقضا."""
+    import time as _t
+    code = code.strip().upper()
+    if not (3 <= len(code) <= 24) or not code.isalnum():
+        return False
+    try:
+        async with raw_db() as db:
+            await db.execute(
+                "INSERT INTO promo_codes (code, credits, max_uses, created_by, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (code, int(credits), int(max_uses), int(created_by),
+                 (_t.time() + days * 86400) if days and days > 0 else 0))
+            await db.commit()
+        return True
+    except Exception:
+        return False
+
+
+async def redeem_promo(code: str, user_id: int):
+    """v3.5.0: استفاده از کد هدیه — برگشت: (ok, credits, دلیل_فارسی)."""
+    import time as _t
+    code = (code or "").strip().upper()
+    if not code:
+        return (False, 0, "کد را وارد کن")
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT credits, max_uses, used_count, expires_at FROM promo_codes WHERE code = ?",
+            (code,))
+        row = await cur.fetchone()
+        if not row:
+            return (False, 0, "چنین کدی وجود ندارد")
+        credits, max_uses, used_count, expires_at = row
+        if expires_at and _t.time() > expires_at:
+            return (False, 0, "این کد منقضی شده")
+        if used_count >= max_uses:
+            return (False, 0, "ظرفیت این کد پر شده")
+        cur = await db.execute(
+            "INSERT OR IGNORE INTO promo_redemptions (code, user_id) VALUES (?, ?)",
+            (code, user_id))
+        if cur.rowcount == 0:
+            return (False, 0, "تو قبلاً این کد را استفاده کردی")
+        cur = await db.execute(
+            "UPDATE promo_codes SET used_count = used_count + 1 "
+            "WHERE code = ? AND used_count < max_uses", (code,))
+        if cur.rowcount == 0:
+            await db.execute("DELETE FROM promo_redemptions WHERE code = ? AND user_id = ?",
+                             (code, user_id))
+            await db.commit()
+            return (False, 0, "ظرفیت این کد همین الان پر شد")
+        await db.commit()
+    await update_credits(user_id, credits, "promo_redeem", f"کد هدیه: {code}")
+    return (True, credits, "")
+
+
+async def list_promos(limit: int = 10):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT code, credits, max_uses, used_count, expires_at FROM promo_codes "
+            "ORDER BY created_at DESC LIMIT ?", (limit,))
+        return await cur.fetchall()
+
+
+async def pick_inactive_users(days: int, limit: int = 1000):
+    """v3.5.0: کاربران راکد (last_seen قدیمی‌تر از N روز) برای پیام win-back."""
+    import time as _t
+    cutoff = _t.time() - days * 86400
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT user_id, first_name FROM users "
+            "WHERE is_banned = 0 AND COALESCE(last_seen, 0) > 0 AND last_seen < ? "
+            "ORDER BY last_seen ASC LIMIT ?", (cutoff, limit))
+        return await cur.fetchall()
+
+
+async def pick_random_active_users(days: int, n: int):
+    """v3.5.0: n کاربر تصادفیِ فعالِ N روز اخیر — برای قرعه‌کشی."""
+    import time as _t
+    cutoff = _t.time() - days * 86400
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT user_id, first_name FROM users "
+            "WHERE is_banned = 0 AND COALESCE(last_seen, 0) >= ? "
+            "ORDER BY RANDOM() LIMIT ?", (cutoff, max(1, n)))
+        return await cur.fetchall()
+
+
+# ══════════════════════════════════════════════════════════════════
+# v4.0.0 — تیکت پشتیبانی · ماموریت‌ها/XP · گزارش تخلف · تحلیل کاربر/فروشنده
+# ══════════════════════════════════════════════════════════════════
+
+# ---------- تیکت ----------
+
+async def create_ticket(user_id: int, category: str, subject: str, body: str) -> int:
+    async with raw_db() as db:
+        cur = await db.execute(
+            "INSERT INTO tickets (user_id, category, subject) VALUES (?, ?, ?)",
+            (user_id, category, subject[:120]))
+        tid = cur.lastrowid
+        await db.execute(
+            "INSERT INTO ticket_msgs (ticket_id, sender_id, sender_role, body) VALUES (?, ?, 'user', ?)",
+            (tid, user_id, body[:3500]))
+        await db.commit()
+    return tid
+
+
+async def add_ticket_msg(ticket_id: int, sender_id: int, role: str, body: str) -> bool:
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id FROM tickets WHERE id = ? AND status != 'closed'", (ticket_id,))
+        if not await cur.fetchone():
+            return False
+        await db.execute(
+            "INSERT INTO ticket_msgs (ticket_id, sender_id, sender_role, body) VALUES (?, ?, ?, ?)",
+            (ticket_id, sender_id, role, body[:3500]))
+        await db.execute("UPDATE tickets SET updated_at = strftime('%s','now') WHERE id = ?",
+                         (ticket_id,))
+        await db.commit()
+    return True
+
+
+async def list_user_tickets(user_id: int, limit: int = 8):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id, category, subject, status FROM tickets WHERE user_id = ? "
+            "ORDER BY updated_at DESC LIMIT ?", (user_id, limit))
+        return await cur.fetchall()
+
+
+async def get_ticket(ticket_id: int):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id, user_id, category, subject, status, created_at FROM tickets WHERE id = ?",
+            (ticket_id,))
+        return await cur.fetchone()
+
+
+async def ticket_thread(ticket_id: int, limit: int = 8):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT sender_role, body, created_at FROM ticket_msgs WHERE ticket_id = ? "
+            "ORDER BY id DESC LIMIT ?", (ticket_id, limit))
+        rows = await cur.fetchall()
+    return list(reversed(rows))
+
+
+async def list_open_tickets(limit: int = 10):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT t.id, t.user_id, t.category, t.subject, t.updated_at FROM tickets t "
+            "WHERE t.status != 'closed' ORDER BY t.updated_at ASC LIMIT ?", (limit,))
+        return await cur.fetchall()
+
+
+async def set_ticket_status(ticket_id: int, status: str) -> bool:
+    async with raw_db() as db:
+        cur = await db.execute("UPDATE tickets SET status = ? WHERE id = ?", (status, ticket_id))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+# ---------- ماموریت‌ها (خودمحاسبه از داده واقعی — بدون هوک) ----------
+
+DEFAULT_QUESTS = [
+    (1, "🎯 اولین قدم‌ها — ۳ تسک انجام بده", "tasks_done", 3, 30),
+    (2, "🛒 خریدار شو — ۲ محصول بخر", "purchases", 2, 60),
+    (3, "👥 تیم‌ساز — ۲ دوست رو دعوت کن", "referrals", 2, 100),
+    (4, "🌟 نقدها رو بگو — به ۲ محصول امتیاز بده", "reviews", 2, 40),
+    (5, "💗 با هرمسا گپ بزن — ۱۰ پیام", "ai_msgs", 10, 40),
+]
+
+
+async def ensure_default_quests():
+    async with raw_db() as db:
+        for qid, title, qtype, target, reward in DEFAULT_QUESTS:
+            await db.execute(
+                "INSERT OR IGNORE INTO quests (id, title, quest_type, target, reward_credits) "
+                "VALUES (?, ?, ?, ?, ?)", (qid, title, qtype, target, reward))
+        await db.commit()
+
+
+async def user_metrics(user_id: int) -> dict:
+    """شمارنده‌های واقعی کاربر — منبع یکتای حقیقت برای ماموریت و XP."""
+    async with raw_db() as db:
+        out = {}
+        for key, sql in (
+            ("tasks_done", "SELECT COUNT(*) FROM task_completions WHERE user_id = ? AND status IN ('completed','verified')"),
+            ("purchases", "SELECT COUNT(*) FROM purchases WHERE buyer_id = ?"),
+            ("referrals", "SELECT COUNT(*) FROM users WHERE referred_by = ?"),
+            ("reviews", "SELECT COUNT(*) FROM reviews WHERE buyer_id = ?"),
+            ("ai_msgs", "SELECT COUNT(*) FROM chat_messages WHERE user_id = ? AND role = 'user'"),
+        ):
+            cur = await db.execute(sql, (user_id,))
+            out[key] = (await cur.fetchone())[0]
+    return out
+
+
+async def quests_view(user_id: int):
+    """فهرست ماموریت‌ها با پیشرفت زنده و وضعیت دریافت جایزه."""
+    await ensure_default_quests()
+    m = await user_metrics(user_id)
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id, title, quest_type, target, reward_credits FROM quests "
+            "WHERE active = 1 ORDER BY id")
+        quests = await cur.fetchall()
+        cur = await db.execute(
+            "SELECT quest_id FROM quest_claims WHERE user_id = ?", (user_id,))
+        claimed = {r[0] for r in await cur.fetchall()}
+    out = []
+    for qid, title, qtype, target, reward in quests:
+        prog = min(m.get(qtype, 0), target)
+        out.append({"id": qid, "title": title, "target": target, "reward": reward,
+                    "progress": prog, "done": prog >= target, "claimed": qid in claimed})
+    return out
+
+
+async def claim_quest(quest_id: int, user_id: int):
+    """دریافت جایزه ماموریت — گارد: پیشرفت کامل + عدم دریافت قبلی."""
+    await ensure_default_quests()
+    v = {q["id"]: q for q in await quests_view(user_id)}
+    q = v.get(quest_id)
+    if not q:
+        return (False, "ماموریت پیدا نشد")
+    if q["claimed"]:
+        return (False, "جایزه این ماموریت را قبلاً گرفتی")
+    if not q["done"]:
+        return (False, f"هنوز کامل نشده ({q['progress']}/{q['target']})")
+    try:
+        async with raw_db() as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO quest_claims (quest_id, user_id) VALUES (?, ?)",
+                (quest_id, user_id))
+            await db.commit()
+    except Exception:
+        return (False, "خطا در ثبت")
+    await update_credits(user_id, q["reward"], "quest_reward", f"ماموریت: {q['title'][:60]}")
+    return (True, q["reward"])
+
+
+LEVELS = [(1, 0, "🥉 نوآموز"), (2, 100, "🥈 کوشا"), (3, 300, "🥇 چابک"),
+          (4, 700, "💎 حرفه‌ای"), (5, 1500, "👑 استاد"), (6, 3000, "🔥 افسانه")]
+
+
+def _level_of(xp: int):
+    lvl, title = LEVELS[0][0], LEVELS[0][2]
+    nxt = None
+    for i, (l, th, t) in enumerate(LEVELS):
+        if xp >= th:
+            lvl, title = l, t
+            nxt = LEVELS[i + 1][1] if i + 1 < len(LEVELS) else None
+    return (lvl, title, nxt)
+
+
+async def xp_snapshot(user_id: int) -> dict:
+    m = await user_metrics(user_id)
+    xp = (m["tasks_done"] * 10 + m["purchases"] * 15 + m["referrals"] * 25 +
+          m["reviews"] * 5 + m["ai_msgs"] * 1)
+    lvl, title, nxt = _level_of(xp)
+    return {"xp": xp, "level": lvl, "title": title, "next_at": nxt, "metrics": m}
+
+
+# ---------- گزارش تخلف ----------
+
+async def create_report(reporter_id: int, target: str, reason: str) -> int:
+    async with raw_db() as db:
+        cur = await db.execute(
+            "INSERT INTO reports (reporter_id, target, reason) VALUES (?, ?, ?)",
+            (reporter_id, target[:120], reason[:800]))
+        await db.commit()
+        return cur.lastrowid
+
+
+async def list_open_reports(limit: int = 10):
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT id, reporter_id, target, reason, created_at FROM reports "
+            "WHERE status = 'open' ORDER BY id ASC LIMIT ?", (limit,))
+        return await cur.fetchall()
+
+
+# ---------- تحلیل کاربر / فروشنده ----------
+
+async def user_analytics(user_id: int) -> dict:
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(price_credits),0) FROM purchases WHERE buyer_id = ?",
+            (user_id,))
+        n_purch, spent = await cur.fetchone()
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM task_completions WHERE user_id = ? AND status IN ('completed','verified')",
+            (user_id,))
+        n_tasks = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,))
+        n_refs = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM users WHERE credits <= (SELECT credits FROM users WHERE user_id = ?)",
+            (user_id,))
+        rank_pos = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM users", ())
+        total_users = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT created_at FROM users WHERE user_id = ?", (user_id,))
+        created = (await cur.fetchone())[0]
+    days = max(1, int(time.time() - (created or time.time())) // 86400 + 1)
+    xp = await xp_snapshot(user_id)
+    return {"purchases": n_purch, "spent": spent, "tasks": n_tasks, "referrals": n_refs,
+            "percentile": round(100.0 * rank_pos / max(1, total_users)), "days": days,
+            "xp": xp["xp"], "level": xp["level"], "title": xp["title"]}
+
+
+async def seller_analytics(seller_id: int) -> dict:
+    async with raw_db() as db:
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(p.price_credits),0), COUNT(DISTINCT p.buyer_id) "
+            "FROM purchases p JOIN products pr ON pr.id = p.product_id "
+            "WHERE pr.creator_id = ?", (seller_id,))
+        units, revenue, buyers = await cur.fetchone()
+        cur = await db.execute(
+            "SELECT pr.title, COUNT(p.id) FROM purchases p JOIN products pr ON pr.id = p.product_id "
+            "WHERE pr.creator_id = ? GROUP BY pr.id ORDER BY COUNT(p.id) DESC LIMIT 1", (seller_id,))
+        top = await cur.fetchone()
+        cur = await db.execute(
+            "SELECT AVG(r.stars), COUNT(*) FROM reviews r JOIN products pr ON pr.id = r.product_id "
+            "WHERE pr.creator_id = ?", (seller_id,))
+        avg_stars, n_reviews = await cur.fetchone()
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(COALESCE(views,0)),0) FROM products WHERE creator_id = ?",
+            (seller_id,))
+        n_prods, views = await cur.fetchone()
+    return {"units": units, "revenue": revenue, "buyers": buyers,
+            "top": (top[0], top[1]) if top else None,
+            "avg_stars": round(avg_stars or 0.0, 1), "n_reviews": n_reviews,
+            "products": n_prods, "views": views}
+
+
+# ---------- v4.0.0: لیدربورد ----------
+
+async def leaderboard(kind: str = "xp", days: int = 0, limit: int = 10):
+    """جدول برترین‌ها — days=0 یعنی کل دوره. kinds: xp/buyers/sellers/referrers."""
+    cutoff = (time.time() - days * 86400) if days else 0
+    async with raw_db() as db:
+        if kind == "xp":
+            sql = ("SELECT u.user_id, u.first_name, "
+                   "(SELECT COUNT(*) FROM task_completions tc WHERE tc.user_id=u.user_id AND tc.status IN ('completed','verified'))*10 + "
+                   "(SELECT COUNT(*) FROM purchases p WHERE p.buyer_id=u.user_id)*15 + "
+                   "(SELECT COUNT(*) FROM users r WHERE r.referred_by=u.user_id)*25 "
+                   "AS xp FROM users u WHERE u.is_banned=0 AND u.created_at >= ? "
+                   "ORDER BY xp DESC LIMIT ?")
+        elif kind == "sellers":
+            sql = ("SELECT u.user_id, u.first_name, COUNT(p.id)*10 + CAST(COALESCE(SUM(p.price_credits),0)/100 AS INT) "
+                   "FROM users u JOIN products pr ON pr.creator_id=u.user_id "
+                   "JOIN purchases p ON p.product_id=pr.id AND p.created_at >= ? "
+                   "WHERE u.is_banned=0 GROUP BY u.user_id ORDER BY 3 DESC LIMIT ?")
+        elif kind == "referrers":
+            sql = ("SELECT u.user_id, u.first_name, COUNT(r.user_id) FROM users u "
+                   "JOIN users r ON r.referred_by=u.user_id AND r.created_at >= ? "
+                   "WHERE u.is_banned=0 GROUP BY u.user_id ORDER BY 3 DESC LIMIT ?")
+        else:  # buyers
+            sql = ("SELECT u.user_id, u.first_name, COUNT(p.id) FROM users u "
+                   "JOIN purchases p ON p.buyer_id=u.user_id AND p.created_at >= ? "
+                   "WHERE u.is_banned=0 GROUP BY u.user_id ORDER BY 3 DESC LIMIT ?")
+        cur = await db.execute(sql, (cutoff, limit))
+        return await cur.fetchall()
+
+
+# ─────────────────────────────────────────────────────────────
+# v0.9.9 «روژن»: موتور تحلیل رشد — پایهٔ داشبورد /insights
+# ─────────────────────────────────────────────────────────────
+
+async def insights_series(days: int = 14) -> dict:
+    """سری زمانی روزانه: کاربر جدید، فعال، فروش، گردش (GMV با کردیت)."""
+    import time as _t
+    now = _t.time()
+    out = {"days": [], "new_users": [], "active": [], "sales": [], "gmv": []}
+    async with raw_db() as db:
+        for i in range(days - 1, -1, -1):
+            day_end = now - i * 86400
+            day_start = day_end - 86400
+            out["days"].append(_t.strftime("%m-%d", _t.localtime(day_start)))
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE created_at >= ? AND created_at < ?",
+                (day_start, day_end))
+            out["new_users"].append((await cur.fetchone())[0])
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE last_seen >= ? AND last_seen < ?",
+                (day_start, day_end))
+            out["active"].append((await cur.fetchone())[0])
+            cur = await db.execute(
+                "SELECT COUNT(*), COALESCE(SUM(price_credits),0) FROM purchases "
+                "WHERE created_at >= ? AND created_at < ?",
+                (day_start, day_end))
+            row = await cur.fetchone()
+            out["sales"].append(row[0])
+            out["gmv"].append(row[1])
+    return out
+
+
+async def insights_totals() -> dict:
+    """KPIهای کلی برای کارت‌های بالای داشبورد تحلیل."""
+    import time as _t
+    now = _t.time()
+    w7, w14 = now - 7 * 86400, now - 14 * 86400
+    async with raw_db() as db:
+        cur = await db.execute("SELECT COUNT(*) FROM users")
+        users = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM users WHERE last_seen >= ?", (w7,))
+        active7 = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM users WHERE created_at >= ?", (w7,))
+        new7 = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(price_credits),0) FROM purchases WHERE created_at >= ?",
+            (w14,))
+        sales14, gmv14 = (await cur.fetchone())
+        cur = await db.execute(
+            "SELECT title, sales_count FROM products WHERE sales_count > 0 "
+            "ORDER BY sales_count DESC LIMIT 5")
+        top_products = [dict(r) if not isinstance(r, dict) else r for r in
+                        [dict(zip(("title", "sales_count"), row)) for row in await cur.fetchall()]]
+        cur = await db.execute(
+            "SELECT COALESCE(NULLIF(category,''),'سایر') AS cat, COUNT(*) AS n "
+            "FROM products WHERE is_active=1 GROUP BY cat ORDER BY n DESC LIMIT 6")
+        top_categories = [dict(zip(("category", "n"), row)) for row in await cur.fetchall()]
+    return {
+        "users": users, "active7": active7, "new7": new7,
+        "sales14": sales14, "gmv14": gmv14,
+        "aov": round(gmv14 / sales14, 1) if sales14 else 0,
+        "top_products": top_products, "top_categories": top_categories,
+    }
+
+
+async def weekly_top_sellers(limit: int = 5) -> list[dict]:
+    """برترین فروشندگان ۷روز اخیر — هفته‌نامهٔ «روژن»."""
+    import time as _t
+    cutoff = _t.time() - 7 * 86400
+    async with raw_db() as db:
+        cur = await db.execute(
+            """SELECT pr.creator_id AS uid,
+                      COALESCE(NULLIF(u.first_name,''), NULLIF(u.username,''), CAST(pr.creator_id AS TEXT)) AS name,
+                      COUNT(*) AS sales,
+                      COALESCE(SUM(p.price_credits),0) AS gmv
+               FROM purchases p
+               JOIN products pr ON pr.id = p.product_id
+               JOIN users u ON u.user_id = pr.creator_id
+               WHERE p.created_at >= ?
+               GROUP BY pr.creator_id ORDER BY sales DESC, gmv DESC LIMIT ?""",
+            (cutoff, limit))
+        return [dict(zip(("uid", "name", "sales", "gmv"), row)) for row in await cur.fetchall()]

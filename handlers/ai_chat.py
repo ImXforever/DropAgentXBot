@@ -2,21 +2,21 @@ import logging
 import os
 import time
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ai_agent import (
-    chat_with_ai, generate_product_title,
-    generate_product_description, generate_html_tutorial,
     AI_SYSTEM_PROMPT,
+    generate_html_tutorial,
+    generate_product_description,
+    generate_product_title,
 )
-from database import get_user, get_db, update_credits
 from config import config
-from utils import get_or_create_user,  send_safe, edit_safe, ChatStream
-from skills import build_skills_prompt
+from database import get_db, get_user, update_credits
+from utils import ChatStream, edit_safe, send_safe
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -128,6 +128,7 @@ EXIT_COMMANDS = {"/back", "/start", "/cancel"}
 
 # simple per-user AI cooldown (economic fuse)
 import time as _time
+
 _LAST_AI_CALL: dict[int, float] = {}
 AI_COOLDOWN_SECONDS = 3.0
 
@@ -250,10 +251,9 @@ async def process_chat(message: Message, state: FSMContext):
         await message.answer("↩️ از چت خارج شدی. /start بزن.")
         return
 
-    from database import mem_add
-    from utils import ChatStream
-    from hermes_engine import hermes_chat_stream, chat_custom, HermesEngineError
     from ai_agent import smart_messages
+    from database import mem_add
+    from hermes_engine import HermesEngineError, chat_custom, hermes_chat_stream
 
     if not await _ai_cooled_down(message.from_user.id):
         await message.answer("⏳ کمی آرام‌تر — چند ثانیه دیگر دوباره بفرست.")
@@ -261,7 +261,6 @@ async def process_chat(message: Message, state: FSMContext):
 
     ok, _rem = await _charge_ai_reply(message.from_user.id)
     if not ok:
-        from hermes_engine import get_dynamic_setting
         cost = await _ai_chat_cost()
         await send_safe(
             message,
@@ -311,7 +310,7 @@ async def process_chat(message: Message, state: FSMContext):
             fleet_on = (await get_setting("fleet_enabled", "1")) == "1"
             fleet_meta = None
             if fleet_on:
-                from fleet import run_fleet, fleet_status_line
+                from fleet import run_fleet
 
                 async def _status(s):
                     await live.set_status(s)
@@ -325,8 +324,8 @@ async def process_chat(message: Message, state: FSMContext):
             if not fleet_meta or fleet_meta.get("mode") != "team":
                 # Tool loop: agent's hands on real data (Atlas flagged it)
                 if fleet_meta and fleet_meta.get("needs_tools"):
-                    from tools import TOOL_SPECS, execute_tool
                     from hermes_engine import chat_with_tools
+                    from tools import TOOL_SPECS, execute_tool
 
                     await live.set_status("⚒️ در حال استفاده از ابزارهای پلتفرم…")
                     try:
@@ -374,7 +373,7 @@ async def process_chat(message: Message, state: FSMContext):
         await _refund_ai_reply(message.from_user.id, "AI engine error")
         await live.fail(f"⚠️ {e}")
         return
-    except Exception as e:  # noqa: BLE001 — never let a credit burn silently
+    except Exception as e:
         logger.exception("AI chat failed unexpectedly (uid=%s, model path)",
                          message.from_user.id)
         await _refund_ai_reply(message.from_user.id,
@@ -558,7 +557,7 @@ async def process_tutorial_save(message: Message, state: FSMContext):
 
     parts = message.text.split("|")
     if len(parts) != 2:
-        await send_safe(message, "❌ فرمت اشتباهه! `عنوان | قیمت` بفرست.")
+        await message.answer("❌ فرمت اشتباهه! `عنوان | قیمت` بفرست.", parse_mode="Markdown")
         return
 
     title = parts[0].strip()
@@ -665,8 +664,8 @@ async def custombot_menu(callback: CallbackQuery, state: FSMContext):
             "با API سازگار با OpenAI خودت، داخل همین چت از مدل دلخواهت استفاده کن:\n"
             "• کلید API خودت (OpenAI / Groq / OpenRouter / سرور شخصی...)\n"
             "• Endpoint + مدل دلخواه\n\n"
-            f"💚 کاملاً رایگان — بدون هزینهٔ lifetime!\n"
-            f"🔓 هر وقت بخوای فعال/غیرفعال کن.",
+            "💚 کاملاً رایگان — بدون هزینهٔ lifetime!\n"
+            "🔓 هر وقت بخوای فعال/غیرفعال کن.",
             kb,
         )
         await callback.answer()
@@ -788,7 +787,7 @@ async def doc_build_start(callback: CallbackQuery, state: FSMContext):
         "📄 **Document Builder** — سازندهٔ اسناد حرفه‌ای هرمس\n\n"
         "۱) موضوع سند رو بنویس\n"
         "۲) فرمت رو انتخاب کن (پیش‌فرض: Markdown)\n\n"
-        f"خروجی همیشه ساختارمند: عنوان، TL;DR، بخش‌ها، کد واقعی، چک‌لیست.\n\nلغو: /cancel",
+        "خروجی همیشه ساختارمند: عنوان، TL;DR، بخش‌ها، کد واقعی، چک‌لیست.\n\nلغو: /cancel",
         kb,
     )
     await callback.answer()
@@ -809,11 +808,12 @@ async def doc_topic(message: Message, state: FSMContext):
     await state.update_data(doc_topic=message.text.strip())
     await state.set_state(None)
 
-    from ai_agent import generate_document
-    from utils import LiveEditor
-    from database import mem_add
     import os
     import time
+
+    from ai_agent import generate_document
+    from database import mem_add
+    from utils import LiveEditor
 
     data = await state.get_data()
     fmt = data.get("doc_fmt", "md")
@@ -860,7 +860,8 @@ async def voice_in(message: Message, state: FSMContext):
         return
 
     status = await message.answer("🎙 در حال شنیدن…")
-    import tempfile, os as _os
+    import os as _os
+    import tempfile
     tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
     await message.bot.download(message.voice, destination=tmp.name)
 
@@ -898,7 +899,7 @@ async def tts_cmd(message: Message):
     text = (message.text or "").split(maxsplit=1)
     body = text[1].strip() if len(text) > 1 else ""
     if not body:
-        await send_safe(message, "متن را هم بده: `/tts سلام دنیا`")
+        await message.answer("متن را هم بده: `/tts سلام دنیا`", parse_mode="Markdown")
         return
     m = await message.answer("🔊 در حال ساختن صدا…")
     try:
@@ -968,7 +969,7 @@ async def cover_pick(callback: CallbackQuery, state: FSMContext):
     if not path or not os.path.exists(path):
         await callback.answer("کاور منقضی شده.", show_alert=True)
         return
-    from database import update_product_field, get_product
+    from database import get_product, update_product_field
     prod = await get_product(pid)
     if not prod or prod["creator_id"] != callback.from_user.id:
         await callback.answer("دسترسی نداری!", show_alert=True)
@@ -982,7 +983,7 @@ async def history_search_cmd(message: Message):
     q = (message.text or "").split(maxsplit=1)
     query = q[1].strip() if len(q) > 1 else ""
     if not query:
-        await send_safe(message, "`/search <کلمه کلیدی>`")
+        await message.answer("`/search <کلمه کلیدی>`", parse_mode="Markdown")
         return
     from database import history_search
     rows = await history_search(message.from_user.id, query, 8)
@@ -990,11 +991,12 @@ async def history_search_cmd(message: Message):
         await message.answer(f"چیزی دربارهٔ «{query}» در تاریخچه‌ات نیست.")
         return
     lines = [f"• [{r['role']}] {r['content'][:110]}" for r in rows]
-    await send_safe(message, f"🗂 **نتایج تاریخچه:**\n\n" + "\n".join(lines))
+    await send_safe(message, "🗂 **نتایج تاریخچه:**\n\n" + "\n".join(lines))
 
 
 # ---- skills admin commands ----
-from aiogram.fsm.state import State as _St, StatesGroup as _SG
+from aiogram.fsm.state import State as _St
+from aiogram.fsm.state import StatesGroup as _SG
 
 
 class SkillAdd(_SG):
@@ -1011,7 +1013,7 @@ async def skill_add_cmd(message: Message, state: FSMContext):
         return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await send_safe(message, "`/skill_add <name>` بعدش محتوا را بفرست.")
+        await message.answer("`/skill_add <name>` بعدش محتوا را بفرست.", parse_mode="Markdown")
         return
     name = parts[1].strip()
     from skills import skill_path
@@ -1037,7 +1039,7 @@ async def skill_del_cmd(message: Message):
         return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await send_safe(message, "`/skill_del <name>`")
+        await message.answer("`/skill_del <name>`", parse_mode="Markdown")
         return
     from skills import skill_del
     await message.answer("🗑 حذف شد." if skill_del(parts[1].strip()) else "پیدا نشد.")

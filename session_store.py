@@ -13,14 +13,14 @@ Design:
   - Export generates complete conversation as downloadable file
 """
 
-import aiosqlite
 import json
 import os
 import time
 from datetime import datetime
 
-from database import get_db, raw_db, MEMORY_MAX_ROWS
+import aiosqlite
 
+from database import get_db
 
 # =========================================================
 # Session CRUD
@@ -247,11 +247,11 @@ async def session_export_md(session_id: int, user_id: int) -> str | None:
     s = data["session"]
     lines = [
         f"# {s['title']}",
-        f"",
+        "",
         f"**Session ID:** {s['id']}",
         f"**Created:** {datetime.fromtimestamp(s['created_at']):%Y-%m-%d %H:%M}" if s['created_at'] else "",
         f"**Messages:** {data['stats']['total_messages']}",
-        f"",
+        "",
         "---",
         "",
     ]

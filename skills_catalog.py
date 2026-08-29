@@ -12,11 +12,9 @@ Users can install/uninstall from the catalog with one command.
 """
 
 import asyncio
-import os
 import re
-import time
 
-from skills import SKILL_DIR, _safe, _skill_file, parse_frontmatter, _scan_sync
+from skills import _safe, _scan_sync, _skill_file
 
 # =========================================================
 # Built-in Skill Catalog

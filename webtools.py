@@ -79,12 +79,12 @@ async def web_search(query: str, max_results: int = 5) -> list[dict]:
     # lite layout: result links <a rel="nofollow" href="URL" class='result-link'>TITLE</a>
     for m in re.finditer(
         r'<a[^>]+href="(http[^"]+)"[^>]*class=[\'"]result-link[\'"][^>]*>(.*?)</a>',
-        html, re.S):
+        html, re.DOTALL):
         url = m.group(1)
         title = re.sub(r"<.*?>", "", m.group(2)).strip()
         # snippet lives in the next result-snippet cell
         tail = html[m.end(): m.end() + 900]
-        sm = re.search(r'class=[\'"]result-snippet[\'"]>(.*?)</t', tail, re.S)
+        sm = re.search(r'class=[\'"]result-snippet[\'"]>(.*?)</t', tail, re.DOTALL)
         snippet = re.sub(r"<.*?>", "", sm.group(1)).strip()[:220] if sm else ""
         if url.startswith("//"):
             url = "https:" + url
@@ -94,15 +94,15 @@ async def web_search(query: str, max_results: int = 5) -> list[dict]:
     return results
 
 
-_TAG_SCRIPT = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)
+_TAG_SCRIPT = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
 _TAG_ANY = re.compile(r"<[^>]+>")
 _WS = re.compile(r"\n{3,}|[ \t]{2,}")
 
 
 def _html_to_text(html: str) -> str:
     html = _TAG_SCRIPT.sub(" ", html)
-    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
-    html = re.sub(r"</(p|div|h[1-6]|li|tr)>", "\n", html, flags=re.I)
+    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"</(p|div|h[1-6]|li|tr)>", "\n", html, flags=re.IGNORECASE)
     text = _TAG_ANY.sub(" ", html)
     import html as _h
     text = _h.unescape(text)

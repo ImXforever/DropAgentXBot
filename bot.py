@@ -5,12 +5,13 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramNetworkError, TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 
 from config import config
 from database import init_db
 from handlers import all_routers
 from hermes_engine import resolve_mode
+from observability import build_error_middleware, init_log_tables, setup_logging
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -34,14 +35,11 @@ def _file_handler():
     return fh
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        _file_handler(),
-    ],
-)
+# v2.0.0: replace the plain basicConfig with the structured observability layer
+# (JSON to stdout for Railway, WARNING+ drained into the `app_logs` table, plus a
+# global exception hook). The daily rotating file handler is kept as a local belt.
+setup_logging()
+logging.getLogger().addHandler(_file_handler())
 logger = logging.getLogger(__name__)
 
 
@@ -63,22 +61,34 @@ async def main():
     await init_db()
     logger.info("Database initialized at %s", config.DB_PATH)
 
+    # v2.0.0: bring up the observability + v2 feature tables (idempotent).
+    await init_log_tables()
+    try:
+        import memory2
+        await memory2.init_tables()
+        import identity_rl
+        await identity_rl.init_tables()
+    except Exception as e:
+        logger.warning("v2 feature tables skipped: %s", e)
+
     bot = Bot(
         token=config.BOT_TOKEN,
-        # v1.1.1: don't set a bot-wide parse_mode. Message text is sent through
-        # send_safe/edit_safe (which manage MarkdownV2 safely for Persian/RTL);
-        # letting a raw "Markdown" default leak into every reply is what caused
-        # the `/start` "byte offset 29" crash. Set per-call when intentional.
-        default=DefaultBotProperties(parse_mode=None),
+        default=DefaultBotProperties(parse_mode="Markdown"),
     )
     dp = Dispatcher()
+
+    # v2.0.0: capture handler exceptions into the SQLite log trail.
+    try:
+        dp.update.outer_middleware(build_error_middleware())
+    except Exception as e:
+        logger.warning("error middleware skipped: %s", e)
 
     for router in all_routers:
         dp.include_router(router)
 
     @dp.errors()
     async def on_handler_error(event, exception: Exception | None = None, **kwargs):
-        exc = exception or kwargs.get("exception")
+        exc = exception or getattr(event, "exception", None) or kwargs.get("exception")
         if isinstance(exc, TelegramNetworkError):
             logger.warning("قطعی لحظه‌ای شبکه تلگرام — بات به کارش ادامه می‌دهد.")
             return True
@@ -112,6 +122,31 @@ async def main():
         except Exception as e:
             logger.warning("A2A disabled: %s", e)
 
+    # v3: agent discovery + MCP bridge (agent.json / .well-known / mcp). These run
+    # as lightweight Starlette servers on their own ports, exposed via the gateway.
+    if os.getenv("A2A_ENABLED", "1") == "1":
+        try:
+            import uvicorn as _uv
+
+            from a2a_v2 import build_app as _a2a_app
+            _port = int(os.getenv("A2A_V2_PORT", "9001") or 9001)
+            _cfg = _uv.Config(_a2a_app(), host="0.0.0.0", port=_port, log_level="warning")
+            extra_tasks.append(asyncio.create_task(_uv.Server(_cfg).serve()))
+            logger.info("A2A v2 (agent card + /a2a) on :%s", _port)
+        except Exception as e:
+            logger.warning("A2A v2 disabled: %s", e)
+    if os.getenv("A2A_ENABLED", "1") == "1":
+        try:
+            import uvicorn as _uv
+
+            from mcp_bridge import build_app as _mcp_app
+            _port = int(os.getenv("MCP_PORT", "9020") or 9020)
+            _cfg = _uv.Config(_mcp_app(), host="0.0.0.0", port=_port, log_level="warning")
+            extra_tasks.append(asyncio.create_task(_uv.Server(_cfg).serve()))
+            logger.info("MCP bridge on :%s", _port)
+        except Exception as e:
+            logger.warning("MCP bridge disabled: %s", e)
+
     if os.getenv("WEB_PORT"):
         try:
             from web_admin import start_server
@@ -122,7 +157,7 @@ async def main():
 
     async def _init_mcp():
         try:
-            from mcp_lite import start_servers, mcp_tool_specs
+            from mcp_lite import start_servers
             srv = await start_servers()
             n = sum(len(s["tools"]) for s in srv.values())
             if n:

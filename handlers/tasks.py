@@ -1,19 +1,27 @@
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from utils import get_or_create_user,  send_safe, edit_safe
-from database import (
-    get_pending_tasks, get_user, update_credits,
-    is_task_completed_by_user, get_user_tasks, get_db
-)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
 from config import config
+from database import (
+    get_db,
+    get_pending_tasks,
+    get_user_tasks,
+    is_task_completed_by_user,
+    update_credits,
+)
+from utils import edit_safe, get_or_create_user
 
 router = Router()
 
 
-class TaskCreation(StatesGroup):
-    waiting_details = State()
+class TaskWizard(StatesGroup):
+    """v3.4.0: ساخت تسک ۵ قدمی تمام‌دکمه‌ای — بدون فرمت تایپی"""
+    waiting_title = State()
+    waiting_url = State()
+    waiting_custom_count = State()
+    waiting_custom_reward = State()
 
 
 @router.callback_query(F.data == "tasks_menu")
@@ -21,6 +29,7 @@ async def tasks_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = await get_or_create_user(callback.from_user)
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 بونوس روزانه", callback_data="daily_bonus")],
         [InlineKeyboardButton(text="📋 تسک‌های فعال", callback_data="available_tasks")],
         [InlineKeyboardButton(text="⏳ در انتظار تأیید", callback_data="my_pending_tasks")],
         [InlineKeyboardButton(text="✅ انجام‌شده‌ها", callback_data="my_completed_tasks")],
@@ -30,8 +39,9 @@ async def tasks_menu(callback: CallbackQuery, state: FSMContext):
 
     await edit_safe(callback.message, 
         f"✅ **تسک‌ها و کسب درآمد**\n\n"
-        f"💰 کردیت شما: **{user['credits']}**\n\n"
-        f"🎯 با انجام تسک‌های ساده (فالو/ساب)، کردیت جمع کن و محصول بعدی‌ات را بساز.",
+        f"💰 کردیت شما: **{user['credits']:,}**\n\n"
+        f"🎯 تسک بزن ← کردیت بگیر ← محصول بساز و بفروش!\n"
+        f"🧙‍♂️ تبلیغ می‌خوای؟ «➕ ثبت تسک تبلیغی» حالا **تمام‌دکمه‌ای** است — ۵ قدم سریع، بدون تایپ فرمت!",
         reply_markup=kb,
         parse_mode="Markdown",
     )
@@ -130,9 +140,10 @@ async def confirm_task(callback: CallbackQuery):
         await callback.answer("قبلاً این تسک رو انجام دادی!", show_alert=True)
         return
 
-    # ---- atomic completion: unique(task,user) guards double-reward ----
-    rewarded = False
-    reward = title = None
+    # ---- v2.0: جریان بررسی گزینه‌به‌گزینه ----
+    # قبلاً «انجام دادم» = پاداش فوری و بدون بررسی (استاتوس verified) که هم
+    # سوءاستفاده‌پذیر بود هم با شمارش واجد شرایطِ ریفرال (completed) نمی‌خواند.
+    # حالا: status='pending' → ادمین از پنل، تکتک را ✅/❌ می‌کند.
     async with get_db() as db:
         cur = await db.execute(
             "SELECT COALESCE(max_completions,0), current_completions, "
@@ -148,11 +159,11 @@ async def confirm_task(callback: CallbackQuery):
 
         cur = await db.execute(
             "INSERT OR IGNORE INTO task_completions (task_id, user_id, status) "
-            "VALUES (?, ?, 'verified')",
+            "VALUES (?, ?, 'pending')",
             (task_id, callback.from_user.id),
         )
         if cur.rowcount == 0:
-            await callback.answer("قبلاً این تسک رو انجام دادی!", show_alert=True)
+            await callback.answer("این تسک در صف بررسی است!", show_alert=True)
             return
 
         await db.execute(
@@ -160,24 +171,7 @@ async def confirm_task(callback: CallbackQuery):
             (task_id,),
         )
         await db.commit()
-        rewarded = True
-        _, _, reward, title = trow
-
-    if not rewarded:
-        return
-
-    await update_credits(
-        callback.from_user.id,
-        reward,
-        "task_completion",
-        f"Completed task: {title}",
-        task_id,
-    )
-
-    # 1-B: tasks count toward referral qualification (need ≥3 tasks OR purchase)
-    from handlers.referral import maybe_qualify_referral
-    await maybe_qualify_referral(callback.bot, callback.from_user.id)
-
+        reward, title = trow[2], trow[3]
 
     user = await get_or_create_user(callback.from_user)
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -187,14 +181,14 @@ async def confirm_task(callback: CallbackQuery):
 
     await edit_safe(
         callback.message,
-        f"✅ **تسک تکمیل شد! آفرین** 🎉\n\n"
-        f"💰 **+{reward:,} کردیت** (≈{reward / 1000:.2f}$)\n"
-        f"💳 موجودی: **{user['credits']:,} کردیت** "
-        f"(≈{user['credits'] / 1000:.2f}$)\n\n"
-        f"💡 همینطور ادامه بده تا به حداقل برداشت برسی!",
+        f"⏳ **ثبت شد — در انتظار بررسی!**\n\n"
+        f"📌 **{title}**\n"
+        f"💰 پاداش پس از تأیید: **+{reward:,} کردیت** (≈{reward / 1000:.2f}$)\n\n"
+        f"🕵️ ادمین‌ها تکتک انجام‌ها را بررسی می‌کنند؛ نتیجه به‌صورت پیام اعلام می‌شود.\n"
+        f"💡 فعلاً {user['credits']:,} کردیت داری — تسک بعدی را بزن!",
         kb,
     )
-    await callback.answer("کردیت دریافت شد! 🎉", show_alert=True)
+    await callback.answer("ثبت شد — در صف بررسی ⏳", show_alert=True)
 
 
 @router.callback_query(F.data == "my_pending_tasks")
@@ -254,102 +248,274 @@ async def my_completed_tasks(callback: CallbackQuery):
 
 @router.callback_query(F.data == "create_task")
 async def create_task_start(callback: CallbackQuery, state: FSMContext):
+    """v3.4.0: ویزارد ۵ قدمی دکمه‌ای — قدم ۱: نام تسک"""
     user = await get_or_create_user(callback.from_user)
-    min_cost = config.CREDITS_PER_FOLLOW
-
-    await state.set_state(TaskCreation.waiting_details)
-    await edit_safe(callback.message, 
-        "➕ **ساخت تسک جدید (تبلیغ)**\n\n"
-        "برای ساخت تسک، اطلاعات زیر رو به من بده:\n\n"
-        f"💰 هزینه هر فالو: حداقل {min_cost} کردیت\n"
-        f"💰 موجودی شما: {user['credits']} کردیت\n\n"
-        "📝 لطفاً اطلاعات رو به این فرمت بفرست:\n\n"
-        "`نام تسک | نوع (follow/subscribe) | لینک | تعداد | پاداش هرکدام`\n\n"
-        "مثال:\n"
-        "`کانال تکنولوژی | follow | https://t.me/techchannel | 100 | 5`\n\n"
-        "برای لغو /cancel بزن.",
-        parse_mode="Markdown",
-    )
+    await state.clear()
+    await state.set_state(TaskWizard.waiting_title)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await edit_safe(callback.message,
+        "🧙‍♂️ **ساخت تسک تبلیغی — ۵ قدم سریع**\n\n"
+        f"**قدم ۱ از ۵ — 📝 اسم تسک:**\n"
+        f"یه اسم جذاب بنویس (مثلاً: «فالو کانال تکنولوژی»)\n\n"
+        f"💰 موجودی تو: **{user['credits']:,} کردیت**",
+        kb, parse_mode="Markdown")
     await callback.answer()
 
 
-@router.message(TaskCreation.waiting_details, F.text)
-async def process_task_creation(message: Message, state: FSMContext):
-    parts = [p.strip() for p in message.text.split("|")]
-    if len(parts) != 5:
-        await message.answer(
-            "❌ فرمت اشتباهه! دقیقاً ۵ بخش با `|` جدا کن:\n"
-            "`نام | نوع | لینک | تعداد | پاداش`",
-            parse_mode="Markdown",
-        )
-        return
-
-    title, task_type, target_url, max_completions_str, credits_str = parts
-
+@router.message(TaskWizard.waiting_title, F.text)
+async def tw_title(message: Message, state: FSMContext):
+    title = message.text.strip().replace("`", "'").replace("*", "")
     if not title or len(title) > 80:
-        await message.answer("❌ نام تسک بین ۱ تا ۸۰ کاراکتر باشه.")
+        await message.answer("❌ اسم بین ۱ تا ۸۰ کاراکتر باشه. دوباره بفرست:")
         return
+    await state.update_data(tw_title=title)
+    await state.set_state(TaskWizard.waiting_url)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await message.answer(
+        "✅ قدم ۱ انجام شد!\n\n"
+        "**قدم ۲ از ۵ — 🔗 لینک هدف:**\n"
+        "لینکی که کاربرها باید باز کنن رو بفرست\n"
+        "(مثلاً لینک کانالت: `https://t.me/MyChannel`)",
+        reply_markup=kb, parse_mode="Markdown")
 
-    try:
-        max_completions = int(max_completions_str)
-        credits_reward = int(credits_str)
-    except ValueError:
-        await message.answer("❌ «تعداد» و «پاداش» باید عدد باشن.")
+
+@router.message(TaskWizard.waiting_url, F.text)
+async def tw_url(message: Message, state: FSMContext):
+    url = message.text.strip()
+    if not url.startswith(("http://", "https://", "tg://")):
+        await message.answer("❌ لینک باید با `https://` یا `tg://` شروع بشه. دوباره بفرست:",
+                             parse_mode="Markdown")
         return
+    await state.update_data(tw_url=url)
+    await state.set_state(None)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 فالو کانال", callback_data="tw_type_follow"),
+         InlineKeyboardButton(text="📢 عضویت", callback_data="tw_type_subscribe")],
+        [InlineKeyboardButton(text="❤️ لایک", callback_data="tw_type_like"),
+         InlineKeyboardButton(text="💬 کامنت", callback_data="tw_type_comment")],
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await message.answer(
+        "✅ قدم ۲ انجام شد!\n\n"
+        "**قدم ۳ از ۵ — 🎯 نوع تسک:**\n"
+        "کاربرها دقیقاً چیکار باید بکنن؟",
+        reply_markup=kb, parse_mode="Markdown")
 
-    if task_type not in ["follow", "subscribe", "like", "comment"]:
-        await message.answer("❌ نوع تسک باید یکی از: follow, subscribe, like, comment باشه")
+
+async def _tw_guard(callback: CallbackQuery, state: FSMContext) -> dict:
+    data = await state.get_data()
+    if "tw_title" not in data or "tw_url" not in data:
+        await callback.answer("⌛ این ویزارد منقضی شده — دوباره «➕ ثبت تسک تبلیغی» رو بزن!", show_alert=True)
+        return None
+    return data
+
+
+@router.callback_query(F.data.startswith("tw_type_"))
+async def tw_type(callback: CallbackQuery, state: FSMContext):
+    data = await _tw_guard(callback, state)
+    if not data:
         return
+    ttype = callback.data.split("_", 2)[2]
+    await state.update_data(tw_type=ttype)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="۵۰ نفر", callback_data="tw_count_50"),
+         InlineKeyboardButton(text="۱۰۰ نفر", callback_data="tw_count_100")],
+        [InlineKeyboardButton(text="۲۰۰ نفر", callback_data="tw_count_200"),
+         InlineKeyboardButton(text="۵۰۰ نفر", callback_data="tw_count_500")],
+        [InlineKeyboardButton(text="✍️ عدد دلخواه", callback_data="tw_count_custom")],
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await edit_safe(callback.message,
+        f"✅ قدم ۳ انجام شد: **{dict(follow='فالو کانال', subscribe='عضویت', like='لایک', comment='کامنت').get(ttype, ttype)}**\n\n"
+        "**قدم ۴ از ۵ — 👥 چند نفر انجام بدن؟**",
+        kb, parse_mode="Markdown")
+    await callback.answer()
 
-    if not target_url.startswith(("http://", "https://", "tg://")):
-        await message.answer("❌ لینک باید با http:// یا https:// شروع بشه.")
+
+@router.callback_query(F.data == "tw_count_custom")
+async def tw_count_custom(callback: CallbackQuery, state: FSMContext):
+    if not await _tw_guard(callback, state):
         return
+    await state.set_state(TaskWizard.waiting_custom_count)
+    await edit_safe(callback.message,
+        "✍️ **تعداد دقیق رو بفرست** (بین ۱ تا ۱۰۰٬۰۰۰):", None, parse_mode="Markdown")
+    await callback.answer()
 
-    if max_completions < 1 or max_completions > 100000:
-        await message.answer("❌ تعداد باید بین ۱ تا ۱۰۰,۰۰۰ باشه.")
+
+@router.message(TaskWizard.waiting_custom_count, F.text)
+async def tw_count_custom_msg(message: Message, state: FSMContext):
+    if not message.text.strip().isdigit() or not (1 <= int(message.text.strip()) <= 100000):
+        await message.answer("❌ یه عدد بین ۱ تا ۱۰۰٬۰۰۰ بفرست:")
         return
+    await state.update_data(tw_count=int(message.text.strip()))
+    await state.set_state(None)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="۵💰", callback_data="tw_reward_5"),
+         InlineKeyboardButton(text="۱۰💰", callback_data="tw_reward_10")],
+        [InlineKeyboardButton(text="۲۵💰", callback_data="tw_reward_25"),
+         InlineKeyboardButton(text="۵۰💰", callback_data="tw_reward_50")],
+        [InlineKeyboardButton(text="✍️ عدد دلخواه", callback_data="tw_reward_custom")],
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await message.answer(
+        "✅ قدم ۴ انجام شد!\n\n"
+        "**قدم ۵ از ۵ — 💰 پاداش هر نفر (کردیت):**",
+        reply_markup=kb, parse_mode="Markdown")
 
-    if credits_reward < config.CREDITS_PER_FOLLOW:
-        await message.answer(f"❌ حداقل پاداش: {config.CREDITS_PER_FOLLOW} کردیت")
+
+async def _tw_ask_reward(callback: CallbackQuery, state: FSMContext, count: int):
+    await state.update_data(tw_count=count)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="۵💰", callback_data="tw_reward_5"),
+         InlineKeyboardButton(text="۱۰💰", callback_data="tw_reward_10")],
+        [InlineKeyboardButton(text="۲۵💰", callback_data="tw_reward_25"),
+         InlineKeyboardButton(text="۵۰💰", callback_data="tw_reward_50")],
+        [InlineKeyboardButton(text="✍️ عدد دلخواه", callback_data="tw_reward_custom")],
+        [InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    await edit_safe(callback.message,
+        f"✅ قدم ۴ انجام شد: **{count:,} نفر**\n\n"
+        "**قدم ۵ از ۵ — 💰 پاداش هر نفر (کردیت):**",
+        kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tw_count_"))
+async def tw_count(callback: CallbackQuery, state: FSMContext):
+    data = await _tw_guard(callback, state)
+    if not data:
         return
+    await _tw_ask_reward(callback, state, int(callback.data.rsplit("_", 1)[1]))
 
-    total_cost = max_completions * credits_reward
-    user = await get_or_create_user(message.from_user)
-    if user["credits"] < total_cost:
-        await message.answer(
-            f"❌ کردیت کافی نداری!\n"
-            f"هزینه کل: {total_cost} کردیت\n"
-            f"موجودی: {user['credits']} کردیت\n\n"
-            f"💡 یا تعداد/پاداش رو کم کن."
-        )
+
+@router.callback_query(F.data == "tw_reward_custom")
+async def tw_reward_custom(callback: CallbackQuery, state: FSMContext):
+    if not await _tw_guard(callback, state):
         return
+    await state.set_state(TaskWizard.waiting_custom_reward)
+    min_r = config.CREDITS_PER_FOLLOW
+    await edit_safe(callback.message,
+        f"✍️ **پاداش هر نفر رو بفرست** (حداقل {min_r} کردیت):", None, parse_mode="Markdown")
+    await callback.answer()
 
-    async with get_db() as db:
-        await db.execute(
-            """INSERT INTO tasks (title, task_type, target_url, credits_reward, max_completions, creator_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (title, task_type, target_url, credits_reward, max_completions, message.from_user.id),
-        )
-        await db.commit()
 
-    await update_credits(
-        message.from_user.id,
-        -total_cost,
-        "task_creation",
-        f"Created task: {title} (budget: {total_cost})",
+@router.message(TaskWizard.waiting_custom_reward, F.text)
+async def tw_reward_custom_msg(message: Message, state: FSMContext):
+    min_r = config.CREDITS_PER_FOLLOW
+    if not message.text.strip().isdigit() or int(message.text.strip()) < min_r:
+        await message.answer(f"❌ یه عدد ≥ {min_r} بفرست:")
+        return
+    await state.update_data(tw_reward=int(message.text.strip()))
+    await _tw_preview(message, state)
+
+
+async def _tw_preview(message_or_cb, state: FSMContext):
+    from utils import edit_safe as _es
+    data = await state.get_data()
+    title, url = data["tw_title"], data["tw_url"]
+    ttype, count, reward = data["tw_type"], data["tw_count"], data["tw_reward"]
+    total = count * reward
+    user = await get_or_create_user(message_or_cb.from_user)
+    type_fa = dict(follow="👥 فالو کانال", subscribe="📢 عضویت", like="❤️ لایک", comment="💬 کامنت").get(ttype, ttype)
+    ok = user["credits"] >= total
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 ثبت نهایی", callback_data="tw_go" if ok else "tw_poor")],
+        [InlineKeyboardButton(text="🔄 از اول", callback_data="create_task"),
+         InlineKeyboardButton(text="❌ لغو", callback_data="tw_cancel")],
+    ])
+    text = (
+        "👀 **پیش‌نمایش تسک — آخرین چک!**\n\n"
+        f"📝 اسم: **{title}**\n"
+        f"🎯 نوع: {type_fa}\n"
+        f"🔗 لینک: {url}\n"
+        f"👥 تعداد: **{count:,} نفر**\n"
+        f"💰 پاداش هر نفر: **{reward:,} کردیت**\n"
+        f"━━━━━━━━━\n"
+        f"🧾 هزینه کل: **{total:,} کردیت** | موجودی تو: **{user['credits']:,}**\n\n"
+        + ("🚀 همه‌چی آماده‌ست — «ثبت نهایی» رو بزن!" if ok else
+           "⚠️ **موجودی کافی نیست!** «تعداد» یا «پاداش» رو کم کن — دکمهٔ 🔄 از اول")
     )
-    await state.clear()
+    if isinstance(message_or_cb, Message):
+        await message_or_cb.answer(text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        await _es(message_or_cb.message, text, kb, parse_mode="Markdown")
 
+
+@router.callback_query(F.data == "tw_poor")
+async def tw_poor(callback: CallbackQuery):
+    await callback.answer("💰 موجودی کافی نیست — تعداد یا پاداش رو کم کن (🔄 از اول)", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("tw_reward_"))
+async def tw_reward(callback: CallbackQuery, state: FSMContext):
+    data = await _tw_guard(callback, state)
+    if not data:
+        return
+    reward = int(callback.data.rsplit("_", 1)[1])
+    if reward < config.CREDITS_PER_FOLLOW:
+        await callback.answer(f"حداقل پاداش {config.CREDITS_PER_FOLLOW} کردیت است!", show_alert=True)
+        return
+    await state.update_data(tw_reward=reward)
+    await _tw_preview(callback, state)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "tw_go")
+async def tw_go(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if "tw_title" not in data:
+        await callback.answer("⌛ منقضی شده!", show_alert=True)
+        return
+    title, url = data["tw_title"], data["tw_url"]
+    ttype, count, reward = data["tw_type"], data["tw_count"], data["tw_reward"]
+    total = count * reward
+    from database import try_hold_credits
+    # F2-0.6.0: چک و کسر قبلاً دو مرحلهٔ جدا بود — دبل‌کلیک روی «ثبت نهایی» دو تسک
+    # با یک بودجه می‌ساخت (خلق پول). hold اتمیک شرطی، قبل از INSERT انجام می‌شود.
+    if not await try_hold_credits(callback.from_user.id, total, "task_creation",
+                                  f"Created task: {title} (budget: {total})"):
+        await callback.answer("موجودی کافی نیست!", show_alert=True)
+        return
+    try:
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO tasks (title, task_type, target_url, credits_reward, max_completions, creator_id)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (title, ttype, url, reward, count, callback.from_user.id))
+            await db.commit()
+    except Exception:
+        await update_credits(callback.from_user.id, total, "task_refund",
+                             f"Task creation failed refund: {title}")
+        raise
+    await state.clear()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 دیدن تسک‌ها", callback_data="available_tasks")],
-        [InlineKeyboardButton(text="🔙 برگشت", callback_data="main_menu")],
+        [InlineKeyboardButton(text="🔙 منو", callback_data="main_menu")],
     ])
-
-    await message.answer(
-        f"✅ **تسک ساخته شد!**\n\n"
+    await edit_safe(callback.message,
+        "🎉 **تسکت منتشر شد!**\n\n"
         f"📌 {title}\n"
-        f"💰 هزینه: {total_cost} کردیت\n"
-        f"📊 {max_completions} نفر می‌تونن انجام بدن",
-        reply_markup=kb,
-        parse_mode="Markdown",
-    )
+        f"💰 هزینه: **{total:,} کردیت** کم شد\n"
+        f"📊 **{count:,} نفر** می‌تونن انجامش بدن\n\n"
+        "⏳ انجام‌ها بعد از بررسی تأیید می‌شن و اگه کسی تقلب کنه پاداش نمی‌گیره — خیالت راحت!",
+        kb, parse_mode="Markdown")
+    await callback.answer("🎉 منتشر شد!")
+
+
+@router.callback_query(F.data == "tw_cancel")
+async def tw_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user = await get_or_create_user(callback.from_user)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 تسک‌های فعال", callback_data="available_tasks")],
+        [InlineKeyboardButton(text="🔙 منو", callback_data="main_menu")],
+    ])
+    await edit_safe(callback.message,
+        f"🚫 ساخت تسک لغو شد.\n\n💰 موجودی تو: **{user['credits']:,} کردیت**\n"
+        "هر وقت خواستی «➕ ثبت تسک تبلیغی» رو بزن — ۵ قدم سریعه!",
+        kb, parse_mode="Markdown")
+    await callback.answer("لغو شد")

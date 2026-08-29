@@ -2,14 +2,20 @@ import html
 import os
 import time
 
-from aiogram import Router, F, Bot
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message, FSInputFile
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from config import config as cfg
 from database import get_content, save_content
-from utils import send_safe, edit_safe
+from utils import edit_safe
 
 router = Router()
 
@@ -23,29 +29,42 @@ def is_admin(user_id: int) -> bool:
 
 
 def _menu_kb() -> InlineKeyboardMarkup:
+    """v3.4.0: راهنمای ۴بخشی + شروع سریع + FAQ + پشتیبانی همیشه در دسترس"""
+    _sup = (cfg.SUPPORT_CONTACT or "@ImXforevr").lstrip("@")
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📖 راهنما", callback_data="help_show"),
-            InlineKeyboardButton(text="📜 قوانین", callback_data="help_rules"),
+            InlineKeyboardButton(text="🚀 شروع سریع", callback_data="help_quick"),
+            InlineKeyboardButton(text="📖 راهنمای کامل", callback_data="help_show"),
         ],
-        [InlineKeyboardButton(text="📄 دریافت فایل کامل (HTML)", callback_data="help_html")],
+        [
+            InlineKeyboardButton(text="📜 قوانین", callback_data="help_rules"),
+            InlineKeyboardButton(text="🎯 سوالات متداول", callback_data="help_faq"),
+        ],
+        [
+            InlineKeyboardButton(text="🆘 پشتیبانی مستقیم", url=f"https://t.me/{_sup}"),
+            InlineKeyboardButton(text="📄 فایل کامل (HTML)", callback_data="help_html"),
+        ],
+        [InlineKeyboardButton(text="🎫 ثبت تیکت پشتیبانی", callback_data="support_menu")],
         [InlineKeyboardButton(text="🔙 منوی اصلی", callback_data="main_menu")],
     ])
 
 
 HELP_WELCOME = (
     "❓ **مرکز راهنمایی DropAgentX**\n\n"
-    "هر چیزی که برای شروع لازم داری اینجاست:\n\n"
-    "📖 **راهنما** — قدم‌به‌قدم استفاده از پلتفرم\n"
+    "هرچی لازم داری اینجاست — گم نمی‌شی:\n\n"
+    "🚀 **شروع سریع** — ۵ قدم تا اولین درآمدت\n"
+    "📖 **راهنمای کامل** — همهٔ بخش‌ها قدم‌به‌قدم\n"
     "📜 **قوانین** — چارچوب طلایی بازی\n"
-    "📄 **فایل کامل** — راهنما + قوانین در یک HTML زیبا، ارسال خودکار به تو"
+    "🎯 **سوالات متداول** — جواب‌های فوری\n"
+    "🆘 **پشتیبانی** — " + (cfg.SUPPORT_CONTACT or "@ImXforevr") + " همیشه پاسخگو\n\n"
+    "💡 نکته: هیچ‌جا لازم نیست چیزی حفظ کنی — همه‌جا دکمه هست!"
 )
 
 
 @router.message(F.text.startswith("/help"))
 async def cmd_help(message: Message, state: FSMContext):
     await state.clear()
-    await send_safe(message, HELP_WELCOME, reply_markup=_menu_kb())
+    await message.answer(HELP_WELCOME, reply_markup=_menu_kb(), parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "help_menu")
@@ -58,11 +77,23 @@ async def help_menu(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "help_show")
 async def help_show(callback: CallbackQuery):
     page = await get_content("help")
-    body = page["body"] if page else "راهنما هنوز تنظیم نشده."
+    body = page["body"] if page else (
+        "📖 **راهنمای کامل DropAgentX**\n\n"
+        "💰 **کردیت چیست؟**\nواحد پول داخل بات — ۱٬۰۰۰ کردیت = ۱ USDT. با تسک می‌گیری، با فروش محصول درمیاری.\n\n"
+        "✅ **کسب کردیت:**\nدکمهٔ «✅ کسب کردیت» → تسک‌ها (فالو/ساب) → دکمهٔ «انجام دادم» → بعد از تأیید، پاداش شارژ می‌شه.\n\n"
+        "💗 **چت با هرمسا:**\nAI دستیارته — ایده بگیر، متن محصول بساز، سوال بپرس. هر پیام کردیت کم می‌کنه.\n\n"
+        "🛒 **خرید:**\n«فروشگاه» → محصول → دکمهٔ خرید → فایل همون‌جا تحویل می‌گیری.\n\n"
+        "📦 **فروش:**\n«فروش کن» → ۵ قدم (اسم، توضیح، کمک AI، قیمت، فایل) → بعد تأیید ادمین منتشر می‌شه.\n\n"
+        "👥 **دعوت دوستان:**\n«دعوت دوستان» → لینکت → هر دعوت = جعبه‌شانس فوری + کمیسیون مادام‌العمر از خریدهاش!\n\n"
+        "🎁 **بونوس روزانه:**\nهر روز «💰 کیف پول → 🎁» بزن — استریک‌دار، هر روز بیشتر می‌گیری!\n\n"
+        "💰 **برداشت:**\n«کیف پول» → حداقل ۵ USDT به کیف پولتل/متامسک.\n\n"
+        f"🆘 سوالی بود: {cfg.SUPPORT_CONTACT or '@ImXforevr'}"
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📄 فایل کامل", callback_data="help_html"),
+        [InlineKeyboardButton(text="🚀 شروع سریع", callback_data="help_quick"),
          InlineKeyboardButton(text="📜 قوانین", callback_data="help_rules")],
-        [InlineKeyboardButton(text="🔙 Help", callback_data="help_menu")],
+        [InlineKeyboardButton(text="📄 فایل کامل", callback_data="help_html")],
+        [InlineKeyboardButton(text="🔙 مرکز راهنما", callback_data="help_menu")],
     ])
     await edit_safe(callback.message, body, kb)
     await callback.answer()
@@ -71,13 +102,76 @@ async def help_show(callback: CallbackQuery):
 @router.callback_query(F.data == "help_rules")
 async def rules_show(callback: CallbackQuery):
     page = await get_content("rules")
-    body = page["body"] if page else "قوانین هنوز تنظیم نشده."
+    body = page["body"] if page else (
+        "📜 **قوانین طلایی DropAgentX**\n\n"
+        "۱. **احترام** — با همه محترم باش؛ توهین = مسدودسازی دائمی.\n"
+        "۲. **تسک واقعی** — تسک را واقعاً انجام بده؛ بررسی می‌شه و تقلب = عدم پرداخت.\n"
+        "۳. **محصول قانونی** — فروش محتوای غیرقانونی، کپی‌رایت‌شکن یا گمراه‌کننده ممنوع.\n"
+        "۴. **مالی** — پرداخت فقط داخل بات؛ معاملهٔ خارج از بات = ریسک با خودت.\n"
+        "۵. **یک نفر = یک اکانت** — چنداکانتی برای بونوس = صفر شدن همهٔ موجودی‌ها.\n"
+        "۶. **دعوت واقعی** — دعوت باید آدم واقعی باشه، نه ربات.\n\n"
+        "⚖️ تخلف‌ها توسط ادمین بررسی و تصمیم نهایی با پشتیبانی است.\n"
+        f"🆘 اعتراض/سوال: {cfg.SUPPORT_CONTACT or '@ImXforevr'}"
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📄 فایل کامل", callback_data="help_html"),
+        [InlineKeyboardButton(text="🚀 شروع سریع", callback_data="help_quick"),
          InlineKeyboardButton(text="📖 راهنما", callback_data="help_show")],
-        [InlineKeyboardButton(text="🔙 Help", callback_data="help_menu")],
+        [InlineKeyboardButton(text="🔙 مرکز راهنما", callback_data="help_menu")],
     ])
     await edit_safe(callback.message, body, kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "help_quick")
+async def help_quick(callback: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ قدم ۱: بزن کسب کردیت کن!", callback_data="tasks_menu")],
+        [InlineKeyboardButton(text="🛒 فروشگاه", callback_data="marketplace"),
+         InlineKeyboardButton(text="💗 چت با هرمسا", callback_data="ai_chat")],
+        [InlineKeyboardButton(text="🔙 مرکز راهنما", callback_data="help_menu")],
+    ])
+    await edit_safe(callback.message,
+        "🚀 **شروع سریع — ۵ قدم تا اولین دلار**\n\n"
+        "۱️⃣ «✅ کسب کردیت» → یه تسک ساده انجام بده → کردیت بگیر\n"
+        "۲️⃣ «💗 با هرمسا گپ بزن» → بگو چه محصولی دوست داری بسازی\n"
+        "۳️⃣ «📦 فروش کن» → با راهنمایی AI محصولت رو بساز\n"
+        "۴️⃣ «👥 دعوت دوستان» → لینکت رو بفرست = کردیت هدیه\n"
+        "۵️⃣ «💰 کیف پول» → درآمدت رو USDT برداشت کن\n\n"
+        "⏱ همین ۵ قدم کمتر از ۱۰ دقیقه وقت می‌بره!",
+        kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+FAQS = [
+    ("کردیت از کجا میاد؟",
+     "سه راه: ۱) تسک انجام بدی ۲) محصول بفروشی ۳) دوستت رو دعوت کنی. یا از کیف پول با USDT شارژ کنی."),
+    ("چرا پاداش تسکم فوری نریخت؟",
+     "ضد تقلب! همهٔ تسک‌ها تکتک توسط ادمین بررسی می‌شن — معمولاً سریع تأیید می‌شه و نتیجه رو پیام می‌دی."),
+    ("فایلی که خریدم کجاست؟",
+     "همون چت! بعد خرید خودکار برات ارسال می‌شه. گمشده؟ «فروشگاه → خریدهای من» دوباره دریافتش می‌کنه."),
+    ("برداشت چطوره؟",
+     "«کیف پول → برداشت» — حداقل ۵ USDT به آدرس TON/BSC/SOL خودت. کارمزد شبکه از مبلغ کسر می‌شه."),
+    ("دعوت دوست چقدر بهم می‌رسه؟",
+     "جعبه‌شانس فوری ۵-۲۰ کردیت + ۷۵ کردیت بعد از اولین فعالیتش + ۲۰٪ کمیسیون مادام‌العمر از خریدهاش!"),
+    ("بات رایگانه؟",
+     "شروع کاملاً رایگانه — هدیهٔ عضویت می‌گیری و با تسک بدون پول هم می‌تونی پیش بری."),
+    ("بونوس روزانه چطوره؟",
+     "هر روز از «💰 کیف پول → 🎁 بونوس روزانه» بگیر — پشت‌سرهم بیای، استریک بالا می‌ره و بیشتر می‌گیری!"),
+    ("کد هدیه از کجا؟",
+     "کدهای کمپینی توی تبلیغات و کانال‌ها منتشر می‌شن — از «💰 کیف پول → 🎟 کد هدیه دارم» واردش کن."),
+]
+
+
+@router.callback_query(F.data == "help_faq")
+async def help_faq(callback: CallbackQuery):
+    _sup = (cfg.SUPPORT_CONTACT or "@ImXforevr").lstrip("@")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🆘 سوال دیگه‌ای دارم", url=f"https://t.me/{_sup}")],
+        [InlineKeyboardButton(text="🔙 مرکز راهنما", callback_data="help_menu")],
+    ])
+    body = "🎯 **سوالات متداول**\n\n" + "\n\n".join(
+        f"**{q}**\n{a}" for q, a in FAQS)
+    await edit_safe(callback.message, body, kb, parse_mode="Markdown")
     await callback.answer()
 
 
@@ -107,6 +201,7 @@ _ECONOMY = [
     ("واریز", "USDT روی TON / BSC-BASE / SOL / TRX با تأیید ادمین"),
     ("برداشت", "حداقل ۵ USDT؛ کارمزد شبکه از مبلغ کسر می‌شود"),
     ("ریفرال", "۵–۲۰ کردیت جعبه شانس فوری + ۷۵ کردیت پس از فعالیت نفر + ۲۰٪ کمیسیون مادام‌العمر"),
+    ("پشتیبانی", f"پاسخگویی مستقیم: {cfg.SUPPORT_CONTACT} — اعتراض به بررسی تسک هم همین‌جا"),
 ]
 
 
@@ -300,3 +395,16 @@ async def edit_content_save(message: Message, state: FSMContext):
             f"✅ «{'راهنما' if key=='help' else 'قوانین'}» آپدیت شد!\n"
             f"از همین لحظه در /help و فایل HTML نسخه جدید ارائه می‌شه.",
         )
+
+
+@router.message(F.text.startswith("/version"))
+async def version_cmd(message):
+    """v0.5.0: شفافیت نسخه — همیشه بدان چه نسخه‌ای می‌سازی."""
+    import platform
+
+    from config import VERSION
+    await message.answer(
+        f"🤖 **DropAgentX v{VERSION}** — «بتای عمومی»\n"
+        f"🐍 Python {platform.python_version()}\n"
+        f"🆘 پشتیبانی: {cfg.SUPPORT_CONTACT}",
+        parse_mode="Markdown")

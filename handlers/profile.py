@@ -1,8 +1,9 @@
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from utils import get_or_create_user,  send_safe, edit_safe
-from database import get_user, get_user_stats, get_my_products, get_leaderboard
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+
+from database import get_leaderboard, get_my_products, get_user_stats
+from utils import edit_safe, get_or_create_user
 
 router = Router()
 

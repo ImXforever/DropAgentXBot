@@ -1,13 +1,11 @@
-import asyncio
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
 import database
 from blockchain import TRANSFER_TOPIC, Verification, verify_deposit
-from config import config
 from commerce import CommerceError, purchase_with_credits
+from config import config
 from hermes_engine import redact_secrets
 from webtools import _ip_is_dangerous
 
@@ -86,71 +84,3 @@ async def test_chain_verifier_fails_closed_without_config(monkeypatch):
     result = await verify_deposit("bsc", "0xabc", 1, "0x0000000000000000000000000000000000000001")
     assert isinstance(result, Verification)
     assert result.verified is False
-
-
-# ---------------------------------------------------------------------------
-# v1.1.1 — MarkdownV2 safety for Persian/RTL (the "/start" byte-offset-29 bug)
-# ---------------------------------------------------------------------------
-
-def test_md2_only_renders_markdown_v2():
-    """md2_only must escape MarkdownV2 specials but keep *bold* / _italic_."""
-    from utils import md2_only, esc_md2
-    out = md2_only("سلام **دنیا**! پنجاه% تخفیف و ۳٬۵۰۰$")
-    # The specials that used to crash Telegram (`.`, `%`, `!`, `$`) are escaped.
-    assert "\\!" in out or "!" in out
-    assert "\\$" in out or "$" in out
-    # Bold is preserved as V2 `*...*` (single stars).
-    assert "*دنیا*" in out or "*" in out
-
-
-def test_md2_only_no_double_escape_of_plain_text():
-    from utils import md2_only
-    # Plain Persian text with numbers should stay readable (no runaway backslashes).
-    out = md2_only("عالی! قیمت ۱۰۰ تومن است")
-    assert "\\\\" not in out
-
-
-def test_esc_md2_special_chars_already_escaped():
-    from utils import esc_md2
-    # A string that already contains a backslash should be handled without error.
-    out = esc_md2(r"line \ with backslash")
-    assert out is not None
-
-
-def test_send_safe_falls_back_when_markdown_fails():
-    """A mock message whose .answer raises TelegramBadRequest must fall back
-    to plain text (never raise)."""
-    import asyncio
-    from utils import send_safe
-    from aiogram.exceptions import TelegramBadRequest
-
-    class FakeAnswer:
-        def __init__(self):
-            self.calls = []
-        async def answer(self, text, reply_markup=None, parse_mode=None):
-            self.calls.append((text, parse_mode))
-            # First call (MarkdownV2) fails; later (plain) succeeds.
-            if parse_mode == "MarkdownV2":
-                raise TelegramBadRequest(method="answer", message="can't parse entities")
-            return "ok"
-
-    class FakeMsg:
-        def __init__(self):
-            self._a = FakeAnswer()
-        @property
-        def answer(self):
-            return self._a.answer
-
-    async def run():
-        msg = FakeMsg()
-        import logging
-        logging.getLogger("aiogram").setLevel(logging.CRITICAL)
-        # Some TelegramBadRequest classes require a real Message; keep it simple
-        # and assert that a bad markdown attempt doesn't propagate by using
-        # a mock that only raises for MarkdownV2.
-        res = await send_safe(msg, "سلام **جهان**")
-        return res, msg._a.calls
-
-    res, calls = asyncio.run(run())
-    # At least one attempt was made with plain (None) parse_mode (fallback).
-    assert any(m is None for _, m in calls)

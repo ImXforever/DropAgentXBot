@@ -63,10 +63,10 @@ class SQLiteMemoryProvider(MemoryProvider):
             return cur.rowcount > 0
 
     async def recall(self, user_id, query, limit):
-        from database import get_db, escape_like
+        from database import get_db
         async with get_db() as db:
             cur = await db.execute(
-                f"""SELECT id, kind, content, importance, source,
+                """SELECT id, kind, content, importance, source,
                            COALESCE(recall_count,0), created_at
                     FROM user_memories WHERE user_id = ?
                     ORDER BY importance DESC, id DESC LIMIT ?""",
@@ -134,6 +134,7 @@ def register_provider(provider_cls):
 
 async def get_provider() -> MemoryProvider:
     import os
+
     from database import get_setting
     name = await get_setting("memory_provider", "") or os.getenv("MEMORY_PROVIDER", "sqlite")
     cls = _PROVIDERS.get(name) or SQLiteMemoryProvider
@@ -306,7 +307,7 @@ async def maybe_extract_memories(user_id: int, user_text: str, assistant_text: s
             return
         if not await memory_enabled():
             return
-        from database import mem_count, get_setting
+        from database import get_setting, mem_count
         turns = await mem_count(user_id)
         every = int(float(await get_setting("memory_extract_every", "6")) or 6)
         if turns < 2 or turns % every != 0:

@@ -1,12 +1,7 @@
 """V3 Test Suite — Infrastructure (sessions, cron, db)."""
 import asyncio
-import json
-import os
-import time
 
 import pytest
-import pytest_asyncio
-
 
 # =========================================================
 # Session Persistence (V3-4)
@@ -14,8 +9,13 @@ import pytest_asyncio
 
 @pytest.mark.asyncio
 async def test_session_crud(isolated_db):
-    from session_store import (session_create, session_list, session_get,
-                               session_update_title, session_delete)
+    from session_store import (
+        session_create,
+        session_delete,
+        session_get,
+        session_list,
+        session_update_title,
+    )
     sid = await session_create(1, "Test Session")
     assert sid >= 1
     s = await session_get(sid, 1)
@@ -34,8 +34,7 @@ async def test_session_crud(isolated_db):
 
 @pytest.mark.asyncio
 async def test_session_messages_and_search(isolated_db):
-    from session_store import (session_create, session_add_msg,
-                               session_messages, session_search)
+    from session_store import session_add_msg, session_create, session_messages, session_search
     sid = await session_create(1, "Python Chat")
     await session_add_msg(sid, "user", "tell me about dataclasses")
     await session_add_msg(sid, "assistant", "dataclasses are great for Python")
@@ -51,8 +50,12 @@ async def test_session_messages_and_search(isolated_db):
 
 @pytest.mark.asyncio
 async def test_session_export(isolated_db):
-    from session_store import (session_create, session_add_msg,
-                               session_export_json, session_export_md)
+    from session_store import (
+        session_add_msg,
+        session_create,
+        session_export_json,
+        session_export_md,
+    )
     sid = await session_create(1, "Export Test")
     await session_add_msg(sid, "user", "hello")
     await session_add_msg(sid, "assistant", "hi!")
@@ -69,8 +72,7 @@ async def test_session_export(isolated_db):
 
 @pytest.mark.asyncio
 async def test_session_delete_cascade(isolated_db):
-    from session_store import (session_create, session_add_msg,
-                               session_delete, session_messages)
+    from session_store import session_add_msg, session_create, session_delete, session_messages
     sid = await session_create(1, "To Delete")
     await session_add_msg(sid, "user", "msg1")
     await session_add_msg(sid, "user", "msg2")
@@ -84,8 +86,9 @@ async def test_session_delete_cascade(isolated_db):
 # =========================================================
 
 def test_cron_expression():
-    from cron_scheduler import cron_matches
     from datetime import datetime
+
+    from cron_scheduler import cron_matches
     dt = datetime(2026, 8, 27, 14, 30)  # Thursday
     assert cron_matches("30 14 * * *", dt)
     assert cron_matches("*/15 * * * *", dt)  # 30 is multiple of 15
@@ -110,8 +113,14 @@ def test_at_time_parser():
 
 @pytest.mark.asyncio
 async def test_cron_job_lifecycle(isolated_db):
-    from cron_scheduler import (job_create, job_list, job_get,
-                                job_set_enabled, job_delete, job_run_now)
+    from cron_scheduler import (
+        job_create,
+        job_delete,
+        job_get,
+        job_list,
+        job_run_now,
+        job_set_enabled,
+    )
     jid = await job_create(1, "Test Job", "every", "1h",
                            "notify", "hello world")
     assert jid >= 1
@@ -155,7 +164,7 @@ async def test_db_singleton_reentrant(isolated_db):
 
 @pytest.mark.asyncio
 async def test_db_user_cache(isolated_db):
-    from database import get_user, update_credits, invalidate_user, create_user
+    from database import create_user, get_user, invalidate_user, update_credits
     u = await create_user(42, "cached", "Cache")
     assert u["credits"] == 50
 
@@ -172,7 +181,7 @@ async def test_db_user_cache(isolated_db):
 
 @pytest.mark.asyncio
 async def test_db_fts_search(isolated_db):
-    from database import mem_add, mem_recent, history_search
+    from database import history_search, mem_add
     for i in range(5):
         await mem_add(99, "user", f"message about python decorator {i}")
         await mem_add(99, "assistant", f"answer about python decorator {i}")
@@ -183,8 +192,7 @@ async def test_db_fts_search(isolated_db):
 
 @pytest.mark.asyncio
 async def test_db_moderation_flow(isolated_db):
-    from database import create_user, set_product_status, search_products
-    from database import get_db
+    from database import create_user, get_db, search_products, set_product_status
     await create_user(50, "seller", "Seller")
     async with get_db() as db:
         cur = await db.execute(
@@ -202,8 +210,8 @@ async def test_db_moderation_flow(isolated_db):
 
 @pytest.mark.asyncio
 async def test_db_commerce_atomic(isolated_db):
-    from database import create_user, get_db, update_credits, get_user
     from commerce import purchase_with_credits
+    from database import create_user, get_db, get_user, update_credits
     await create_user(10, "seller", "Seller")
     await create_user(20, "buyer", "Buyer")
     await update_credits(20, 500, "test")
@@ -224,8 +232,14 @@ async def test_db_commerce_atomic(isolated_db):
 
 @pytest.mark.asyncio
 async def test_db_referral_flow(isolated_db):
-    from database import (create_user, set_referred_by, get_referrer,
-                          mark_ref_bonus_paid, count_qualified_refs, count_total_refs)
+    from database import (
+        count_qualified_refs,
+        count_total_refs,
+        create_user,
+        get_referrer,
+        mark_ref_bonus_paid,
+        set_referred_by,
+    )
     await create_user(10, "ref1", "Ref")
     await create_user(20, "ref2", "Ref")
     r = await set_referred_by(20, 10)

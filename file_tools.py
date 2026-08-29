@@ -9,10 +9,9 @@ The agent NEVER touches files outside the allowed root.
 
 import fnmatch
 import os
-import re
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+
 
 def _root() -> str:
     """Resolve the sandbox root at CALL time, not import time.
@@ -45,7 +44,7 @@ MAX_SEARCH_RESULTS = 30
 class FileOpResult:
     success: bool
     message: str
-    data: Optional[dict] = None
+    data: dict | None = None
     audit_entry: str = ""
 
 
@@ -54,7 +53,7 @@ def _audit(action: str, path: str, user_id: int, extra: str = "") -> str:
     return f"[{ts}] uid={user_id} {action} {path} {extra}".strip()
 
 
-def _safe_resolve(path: str) -> tuple[str, Optional[str]]:
+def _safe_resolve(path: str) -> tuple[str, str | None]:
     """Resolve path against the (dynamic) sandbox root, return (resolved, error)."""
     if not path or not path.strip():
         return "", "مسیر خالی است"
@@ -70,7 +69,7 @@ def _is_denied(path: str) -> bool:
     return any(d in lower for d in DENIED_READ_PATTERNS)
 
 
-def _check_extension(path: str, allow_write: bool = False) -> Optional[str]:
+def _check_extension(path: str, allow_write: bool = False) -> str | None:
     ext = os.path.splitext(path)[1].lower()
     if ext in ALLOWED_READ_EXTENSIONS:
         return None
@@ -120,8 +119,7 @@ async def read_file(path: str, line_start: int = 1, line_end: int = 0,
     total_lines = len(all_lines)
     truncated = False
 
-    if line_start < 1:
-        line_start = 1
+    line_start = max(line_start, 1)
     if line_end <= 0:
         line_end = total_lines
 

@@ -22,7 +22,6 @@ No external dependencies — pure Python, works with any API provider.
 
 import hashlib
 import json
-import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -226,10 +225,7 @@ def add_anthropic_cache_markers(messages: list[dict]) -> list[dict]:
     for i, msg in enumerate(messages):
         enriched = dict(msg)
         # Cache the system prompt (always)
-        if i == 0 and msg.get("role") == "system":
-            enriched["cache_control"] = {"type": "ephemeral"}
-        # Cache the compressed summary block if present
-        elif i > 0 and msg.get("role") == "system" and "خلاصه" in msg.get("content", ""):
+        if i == 0 and msg.get("role") == "system" or i > 0 and msg.get("role") == "system" and "خلاصه" in msg.get("content", ""):
             enriched["cache_control"] = {"type": "ephemeral"}
         result.append(enriched)
     return result

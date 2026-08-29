@@ -11,3 +11,6 @@ Pillow>=10.0.0
 
 # Discord gateway
 discord.py>=2.4.0
+
+# v3.3.3 fix: gateway/gateway.py به آن وابسته است ولی در v3.0.0 جا افتاده بود
+starlette>=0.38

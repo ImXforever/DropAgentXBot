@@ -181,10 +181,10 @@ async def generate_document(topic: str, fmt: str = "md", user_key: int = None) -
 
 
 async def generate_html_tutorial(topic: str, level: str = "متوسط", user_key: int = None) -> str:
-    system = """تو Hermes هستی؛ مدرس حرفه‌ای و سازندهٔ محصولات آموزشی.
-یک آموزش کامل دربارهٔ موضوع کاربر بساز. سطح: {lvl}.
+    system = f"""تو Hermes هستی؛ مدرس حرفه‌ای و سازندهٔ محصولات آموزشی.
+یک آموزش کامل دربارهٔ موضوع کاربر بساز. سطح: {level}.
 
-""".format(lvl=level) + DOC_CONTRACT
+""" + DOC_CONTRACT
     raw = await hermes_chat(
         f"موضوع: {topic}",
         system_prompt=system,

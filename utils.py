@@ -13,49 +13,6 @@ def esc_md(text: str) -> str:
     return text
 
 
-def esc_md2(text: str) -> str:
-    """Escape MarkdownV2 special characters for Telegram.
-
-    MarkdownV2 treats these as special: _ * [ ] ( ) ~ ` > # + - = | { } . !
-    We escape them so Persian/RTL text with emoji, numbers and `.` never breaks
-    the entity parsing (the source of the "byte offset 29" crash).
-    """
-    if text is None:
-        return ""
-    _special = r"_*[]()~`>#+-=|{}.!\\"
-    out = []
-    for ch in text:
-        if ch in _special:
-            out.append("\\" + ch)
-        else:
-            out.append(ch)
-    return "".join(out)
-
-
-def md2_only(text: str) -> str:
-    """Wrap a string so it renders in MarkdownV2 but only uses safe markup.
-
-    We escape every special char and then re-introduce *bold* / _italic_ macros
-    in a controlled way via a tiny tokenizer. For safety we keep it simple:
-    convert *bold* and **bold** into valid MarkdownV2, escape everything else.
-    """
-    if text is None:
-        return ""
-    # A conservative approach: escape everything, then unescape our own markers.
-    # We support **bold** and _italic_ only.
-    import re
-    tokens = re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)", text)
-    out = []
-    for tok in tokens:
-        if tok.startswith("**") and tok.endswith("**") and len(tok) > 4:
-            out.append("*" + esc_md2(tok[2:-2]) + "*")  # V2 bold = *...*
-        elif tok.startswith("_") and tok.endswith("_") and len(tok) > 2:
-            out.append("_" + esc_md2(tok[1:-1]) + "_")  # V2 italic = _..._
-        else:
-            out.append(esc_md2(tok))
-    return "".join(out)
-
-
 # ---------- money formatting (UX: always show credit value in USD) ----------
 
 def usd(credits: float, per_usdt: int = 1000) -> str:
@@ -71,7 +28,7 @@ def usd(credits: float, per_usdt: int = 1000) -> str:
     return f"≈{v:.2f}$"
 
 
-def fmt_credits(credits: int | float, per_usdt: int = 1000) -> str:
+def fmt_credits(credits: float, per_usdt: int = 1000) -> str:
     """'1,000 کردیت (≈1$)' — the standard way to show any balance/price."""
     try:
         n = int(credits)
@@ -84,61 +41,43 @@ def _is_not_modified(e: TelegramBadRequest) -> bool:
     return "message is not modified" in str(e).lower()
 
 
-async def send_safe(message, text: str, reply_markup=None, parse_mode=None):
-    """answer() that NEVER lets a Markdown parse error surface.
-
-    Strategy (most -> least preferred):
-      1. MarkdownV2 (via md2_only) — renders RTL/emoji/numbers correctly.
-      2. The caller's requested parse_mode (e.g. MarkdownV1) as-is.
-      3. Plain text (parse_mode=None) — always succeeds.
-    On "message is not modified" we return None (idempotent edit tolerated).
-    """
+async def send_safe(message, text: str, reply_markup=None, parse_mode="Markdown"):
+    """answer(); on Markdown parse failure retry as plain text (explicitly
+    disabling the bot-wide default parse_mode)."""
     try:
-        return await message.answer(md2_only(text), reply_markup=reply_markup,
-                                    parse_mode="MarkdownV2")
+        return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as e:
         if _is_not_modified(e):
             return None
-    if parse_mode:
-        try:
-            return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except TelegramBadRequest as e:
-            if _is_not_modified(e):
-                return None
-    try:
-        return await message.answer(text[:4000], reply_markup=reply_markup, parse_mode=None)
-    except TelegramBadRequest as e:
-        if _is_not_modified(e):
-            return None
-        return None
+        return await message.answer(
+            text[:4000], reply_markup=reply_markup, parse_mode=None
+        )
 
 
-async def edit_safe(callback_message, text: str, reply_markup=None, parse_mode=None):
+async def edit_safe(callback_message, text: str, reply_markup=None, parse_mode="Markdown"):
     """Edit text menus robustly:
-    1) edit_text (MarkdownV2)  2) edit_caption (media)  3) a fresh message.
-    Never raises; falls back to plain text so Markdown parse errors are silent."""
+    1) edit_text  2) edit_caption (media messages)  3) send a fresh message.
+    Tolerates identical-content edits and Markdown parse failures."""
     body = text[:4000]
     last_err = None
     for method in ("edit_text", "edit_caption"):
-        for mode in ("MarkdownV2", parse_mode or None, None):
-            try:
-                payload = md2_only(body) if mode == "MarkdownV2" else body
-                return await getattr(callback_message, method)(
-                    payload, reply_markup=reply_markup, parse_mode=mode
-                )
-            except TelegramBadRequest as e:
-                if _is_not_modified(e):
-                    return None
-                last_err = e
-                continue
-            except AttributeError:
-                last_err = None
-                continue
+        try:
+            return await getattr(callback_message, method)(
+                body, reply_markup=reply_markup, parse_mode=parse_mode
+            )
+        except TelegramBadRequest as e:
+            if _is_not_modified(e):
+                return None
+            last_err = e
+            continue
+        except AttributeError:
+            last_err = None
+            continue
     # media without editable text (or other persistent failure) → fresh message
     try:
         return await callback_message.answer(body, reply_markup=reply_markup, parse_mode=None)
     except Exception:
-        return last_err
+        raise last_err or RuntimeError("edit_safe failed")
 
 
 class LiveEditor:
@@ -215,10 +154,8 @@ class LiveEditor:
         final_text = (final_text or "").strip()[:4000]
         kb = reply_markup
         if self.msg:
-            # Try MarkdownV2 first (safe for RTL/emoji), then plain.
             try:
-                await self.msg.edit_text(md2_only(final_text), reply_markup=kb,
-                                         parse_mode="MarkdownV2")
+                await self.msg.edit_text(final_text, reply_markup=kb, parse_mode="Markdown")
                 return
             except TelegramBadRequest as e:
                 if _is_not_modified(e):
@@ -231,8 +168,7 @@ class LiveEditor:
             except Exception:
                 pass
             try:
-                await self.bot.send_message(self.chat_id, md2_only(final_text),
-                                            reply_markup=kb, parse_mode="MarkdownV2")
+                await self.bot.send_message(self.chat_id, final_text, reply_markup=kb, parse_mode="Markdown")
                 return
             except Exception:
                 try:
@@ -319,8 +255,7 @@ class ChatStream:
                 end = i + len(b)
                 if b.endswith(" ") and end > 0 and s[end - 1:end] == " ":
                     end -= 1  # don't eat the space into the chunk
-                if end > best:
-                    best = end
+                best = max(best, end)
         return best  # index AFTER the break, -1 when none
 
     async def on_delta(self, accumulated: str):
@@ -406,8 +341,24 @@ class ChatStream:
 
 async def get_or_create_user(from_user):
     """Get user or create if missing — for any handler entry point."""
-    from database import get_user, create_user
+    from database import create_user, get_user
     u = await get_user(from_user.id)
     if not u:
         u = await create_user(from_user.id, from_user.username, from_user.first_name)
+    # v3.5.0: ردیابی فعالیت برای win-back — حداکثر یک نوشتن در ۱۵ دقیقه (سبک)
+    try:
+        import time as _t
+        ls = 0
+        try:
+            ls = u["last_seen"] or 0
+        except (KeyError, IndexError):
+            ls = 0
+        if _t.time() - ls > 900:
+            from database import raw_db
+            async with raw_db() as db:
+                await db.execute("UPDATE users SET last_seen = ? WHERE user_id = ?",
+                                 (_t.time(), from_user.id))
+                await db.commit()
+    except Exception:
+        pass
     return u

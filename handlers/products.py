@@ -1,19 +1,32 @@
+import html
 import os
 import time
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from utils import get_or_create_user,  send_safe, edit_safe
-from database import (
-    get_user, get_my_products, get_product, get_db, update_credits,
-    get_purchased_products, update_product_field,
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
+
 from ai_agent import (
-    generate_product_idea, generate_product_title,
-    generate_product_description, IDEA_JSON_CONTRACT,
+    IDEA_JSON_CONTRACT,
+    generate_product_idea,
 )
 from config import config
+from database import (
+    get_db,
+    get_my_products,
+    get_product,
+    get_purchased_products,
+    update_product_field,
+)
+from utils import edit_safe, get_or_create_user
 
 router = Router()
 
@@ -186,7 +199,12 @@ async def purchased_products(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("download_product_"))
 async def download_product(callback: CallbackQuery):
-    product_id = int(callback.data.split("_")[2])
+    # FIX(v2.0 / BUG-4): پارس امن callback_data
+    try:
+        product_id = int(callback.data.split("_")[2])
+    except (IndexError, ValueError):
+        await callback.answer("درخواست نامعتبر است!", show_alert=True)
+        return
     product = await get_product(product_id)
 
     if not product:
@@ -201,21 +219,87 @@ async def download_product(callback: CallbackQuery):
         await callback.answer("⛔ این فایل مال شما نیست — اول محصول را بخرید.", show_alert=True)
         return
 
-    if product["file_path"] and os.path.exists(product["file_path"]):
-        await callback.message.answer_document(
-            FSInputFile(product["file_path"]),
-            caption=f"📥 **{product['title']}**\n\n{product['description'] or ''}",
-            parse_mode="Markdown",
-        )
-    else:
-        if product["description"]:
-            await callback.message.answer(
-                f"📥 **{product['title']}**\n\n{product['description']}",
-                parse_mode="Markdown",
-            )
+    title = product.get("title") if isinstance(product, dict) else product["title"]
+    description = product.get("description") if isinstance(product, dict) else product["description"]
+    file_path = product.get("file_path") if isinstance(product, dict) else product["file_path"]
+    file_fileid = (product.get("file_fileid") if isinstance(product, dict) else None) or None
+    title = title or ""
+    description = description or ""
+
+    # ── FIX(v2.0 / BUG-LOG-1): سقف کپشن تلگرام = ۱۰۲۴ کاراکتر ──
+    # قبلاً title+description بدون سقف ارسال می‌شد →
+    #   TelegramBadRequest: Bad Request: message caption is too long
+    # → دانلود کامل می‌شکست (لاگ ریپو: products.py line 205 ×۳).
+    # راه‌حل: کپشن کوتاه امن + توضیحات کامل در پیام جدا (تکه ۴۰۹۶).
+    short_title = html.escape(title.strip()[:200]) or "بدون عنوان"
+    caption = f"📥 <b>{short_title}</b>"
+    CAPTION_LIMIT = 1024
+    if description.strip():
+        room = CAPTION_LIMIT - len(caption) - 16
+        if room > 0:
+            caption += "\n\n" + html.escape(description.strip())[:room]
+            more_desc = len(description.strip()) > room
         else:
+            more_desc = True
+    else:
+        more_desc = False
+
+    has_disk = bool(file_path) and os.path.exists(file_path)
+    if file_fileid or has_disk:
+        sent = False
+        source = "cloud" if file_fileid else "disk"
+        # تلاش ۱: HTML امن (FIX BUG-2: parse_mode=Markdown با _ و * در متن می‌شکست)
+        try:
+            if source == "cloud":
+                await callback.message.answer_document(file_fileid, caption=caption, parse_mode="HTML")
+            else:
+                await callback.message.answer_document(FSInputFile(file_path), caption=caption, parse_mode="HTML")
+            sent = True
+        except TelegramBadRequest:
+            pass
+        # تلاش ۲: کپشن ساده بدون parse_mode — تقریباً هیچ‌وقت شکست نمی‌خورد
+        if not sent:
+            try:
+                if source == "cloud":
+                    await callback.message.answer_document(file_fileid, caption="📥 " + title.strip()[:200])
+                else:
+                    await callback.message.answer_document(FSInputFile(file_path), caption="📥 " + title.strip()[:200])
+                sent = True
+            except Exception:
+                sent = False
+        if not sent:
+            # FIX(v2.0 / BUG-3): قبلاً در خطا هیچ بازخوردی به کاربر نمی‌رسید
+            await callback.answer("❌ ارسال فایل ناموفق بود — چند لحظه بعد دوباره امتحان کن.", show_alert=True)
+            return
+    else:
+        if not description.strip():
             await callback.answer("فایل محصول موجود نیست!", show_alert=True)
             return
+
+    # توضیحات کامل — پیام جدا، تکه‌تکه با سقف ۴۰۹۶ (بدون parse_mode = بدون ریسک)
+    if more_desc or not (file_fileid or has_disk):
+        full = description.strip()
+        header_needed = not (file_fileid or has_disk)
+        for k in range(0, len(full), 4096):
+            part = full[k:k + 4096]
+            prefix = ("📥 <b>" + short_title + "</b>\n\n") if (k == 0 and header_needed) else ""
+            try:
+                await callback.message.answer(prefix + part)
+            except TelegramBadRequest:
+                await callback.message.answer(part)
+
+    # v3.5.0: اعتمادسازی بازار — دعوت خریدار به امتیازدهی (فقط وقتی فایل واقعاً رفت)
+    if file_fileid or has_disk:
+        try:
+            _rkb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⭐ امتیاز به این محصول", callback_data=f"rate_prod_{product_id}")
+            ]])
+            await callback.message.answer(
+                "🌟 اگر محصول راضی‌کننده بود یه امتیاز بده — به فروشنده انرژی می‌ده و خریدهای بعدی رو بهتر می‌کنه!",
+                reply_markup=_rkb)
+        except Exception:
+            pass
+
     await callback.answer()
 
 
@@ -259,8 +343,8 @@ async def process_idea_photo(message: Message, state: FSMContext):
     """Vision: analyze product photo → auto listing."""
     import base64
     import tempfile
+
     from hermes_engine import llm_call_raw
-    from hermes_engine import extract_json
 
     status = await message.answer("👁️ هرمس در حال دیدن عکس محصول...")
     photo = message.photo[-1]
@@ -412,8 +496,30 @@ async def manual_create(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+
+def _safe_upload_name(uid: int, original: str, with_ts: bool = True) -> str:
+    """F1-0.6.0: اسم فایل تلگرام از کلاینت کاربر می‌آید و می‌تواند شامل / یا .. باشد
+    (path traversal) یا فایل محصول قبلی را بازنویسی کند — همیشه پاک‌سازی و یکتا می‌شود."""
+    import re as _re
+    name = os.path.basename((original or "file").replace("\\", "/")).strip()
+    name = _re.sub(r"[^\w.\-()\u0600-\u06FF ]", "_", name).strip(". ") or "file"
+    stem, ext = os.path.splitext(name)
+    stem = (stem or "file")[:60]
+    ext = ext[:10]
+    ts = f"{int(time.time())}_" if with_ts else ""
+    return f"{uid}_{ts}{stem}{ext}"
+
+
 @router.message(ProductCreation.waiting_for_title)
 async def process_title(message: Message, state: FSMContext):
+    from moderation import check_text
+    ok, bad = await check_text(message.text or "")
+    if not ok:
+        await message.answer(
+            f"🛡️ **عنوان توسط فیلتر ضدکلاهبرداری رد شد.**\n\n"
+            f"عبارت مشکل‌دار: «{bad}»\n"
+            f"لطفاً بدون ادعای غیرواقعی (مثل سود تضمینی) دوباره بفرست:")
+        return
     await state.update_data(title=message.text)
     await state.set_state(ProductCreation.waiting_for_description)
     await message.answer(
@@ -425,6 +531,14 @@ async def process_title(message: Message, state: FSMContext):
 
 @router.message(ProductCreation.waiting_for_description)
 async def process_description(message: Message, state: FSMContext):
+    from moderation import check_text
+    ok, bad = await check_text(message.text or "")
+    if not ok:
+        await message.answer(
+            f"🛡️ **توضیحات توسط فیلتر ضدکلاهبرداری رد شد.**\n\n"
+            f"عبارت مشکل‌دار: «{bad}»\n"
+            f"قول غیرواقعی نده — توضیح صادقانه بفرست:")
+        return
     await state.update_data(description=message.text)
     await state.set_state(ProductCreation.waiting_for_price)
     await message.answer(
@@ -511,13 +625,27 @@ async def process_file(message: Message, state: FSMContext):
         await message.answer(f"❌ فایل خیلی بزرگه! حداکثر {config.MAX_FILE_SIZE_MB}MB")
         return
 
-    file_path = os.path.join(config.UPLOAD_DIR, f"{message.from_user.id}_{file.file_name}")
+    file_path = os.path.join(config.UPLOAD_DIR, _safe_upload_name(message.from_user.id, file.file_name))
     await message.bot.download(file, destination=file_path)
 
-    await state.update_data(file_path=file_path, file_type=file.mime_type)
+    # v2.0 capacity: اگر کانال ذخیره تنظیم شده باشد، فایل را به آن می‌فرستیم و
+    # file_id را نگه می‌داریم → دانلود بدون مصرف Volume (هدف 8000 کاربر)
+    storage_fileid = None
+    if getattr(config, "FILE_STORAGE_CHANNEL_ID", 0):
+        try:
+            sent = await message.bot.send_document(config.FILE_STORAGE_CHANNEL_ID, document=file.file_id)
+            storage_fileid = sent.document.file_id
+            os.remove(file_path)  # نسخه دیسک دیگر لازم نیست
+        except Exception:
+            storage_fileid = None  # رفتار قدیمی دیسک (graceful)
+    if storage_fileid:
+        note = "\n🛰 نسخه ابری ذخیره شد (بدون مصرف فضای سرور)"
+    else:
+        note = ""
+    await state.update_data(file_path=file_path, file_type=file.mime_type, file_fileid=storage_fileid)
     await state.set_state(ProductCreation.waiting_for_tags)
     await message.answer(
-        f"✅ فایل آپلود شد: **{file.file_name}** ({file_size_mb:.1f}MB)\n\n"
+        f"✅ فایل آپلود شد: **{file.file_name}** ({file_size_mb:.1f}MB){note}\n\n"
         f"🏷️ **مرحله ۶:** تگ‌ها رو بنویس (با کاما جدا کن):\n\n"
         f"مثال: `HTML, آموزش, وب, مبتدی`",
         parse_mode="Markdown",
@@ -532,7 +660,7 @@ async def skip_file(message: Message, state: FSMContext):
             parse_mode="Markdown",
         )
         return
-    await state.update_data(file_path=None, file_type=None)
+    await state.update_data(file_path=None, file_type=None, file_fileid=None)
     await state.set_state(ProductCreation.waiting_for_tags)
     await message.answer(
         "⏭️ فایل رد شد\n\n"
@@ -549,8 +677,8 @@ async def process_tags(message: Message, state: FSMContext):
     async with get_db() as db:
         cursor = await db.execute(
             """INSERT INTO products (creator_id, title, description, price_credits,
-                                     file_path, file_type, category, tags, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                                     file_path, file_type, file_fileid, category, tags, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
             (
                 message.from_user.id,
                 data["title"],
@@ -558,6 +686,7 @@ async def process_tags(message: Message, state: FSMContext):
                 data["price"],
                 data.get("file_path"),
                 data.get("file_type"),
+                data.get("file_fileid"),
                 data.get("category", "general"),
                 message.text,
             ),
@@ -705,11 +834,16 @@ async def ep_price(message: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚙️ ادامه ویرایش", callback_data=f"edit_prod_{data['edit_pid']}")],
     ])
-    await send_safe(message, f"✅ قیمت → **{price} کردیت**", reply_markup=kb)
+    await message.answer(f"✅ قیمت → **{price} کردیت**", reply_markup=kb, parse_mode="Markdown")
 
 
 @router.message(ProductEdit.waiting_description)
 async def ep_desc(message: Message, state: FSMContext):
+    from moderation import check_text
+    ok, bad = await check_text(message.text or "")
+    if not ok:
+        await message.answer(f"🛡️ فیلتر ضدکلاهبرداری: عبارت «{bad}» مجاز نیست.")
+        return
     if not message.text:
         await message.answer("❌ فقط متن.")
         return
@@ -757,7 +891,7 @@ async def ep_file(message: Message, state: FSMContext):
         await message.answer(f"❌ حداکثر {config.MAX_FILE_SIZE_MB}MB.")
         return
     os.makedirs(config.UPLOAD_DIR, exist_ok=True)
-    path = os.path.join(config.UPLOAD_DIR, f"{message.from_user.id}_{int(time.time())}_{file.file_name}")
+    path = os.path.join(config.UPLOAD_DIR, _safe_upload_name(message.from_user.id, file.file_name))
     await message.bot.download(file, destination=path)
 
     data = await state.get_data()
@@ -801,7 +935,7 @@ async def ep_link(message: Message, state: FSMContext):
     elif txt.startswith(("http://", "https://")) and " " not in txt and len(txt) <= 300:
         val = txt
     else:
-        await send_safe(message, "❌ لینک باید با `https://` شروع شود و بدون فاصله باشد.")
+        await message.answer("❌ لینک باید با `https://` شروع شود و بدون فاصله باشد.", parse_mode="Markdown")
         return
     data = await state.get_data()
     await update_product_field(data["edit_pid"], "link", val)

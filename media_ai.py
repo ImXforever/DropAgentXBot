@@ -11,8 +11,8 @@ import time
 
 import httpx
 
-from hermes_engine import get_ai_config, get_dynamic_setting
 from config import config
+from hermes_engine import get_ai_config, get_dynamic_setting
 
 
 async def _media_config() -> dict:

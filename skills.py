@@ -136,7 +136,7 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
 # ------------------------------------------------------------------ model ---
 
 class SkillInfo:
-    __slots__ = ("name", "desc", "tags", "version", "enabled", "path", "size")
+    __slots__ = ("desc", "enabled", "name", "path", "size", "tags", "version")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -165,7 +165,7 @@ def _scan_sync() -> list[tuple[str, dict, str, str]]:
             continue
         fm, body = parse_frontmatter(text)
         name = _safe(fm.get("name") or (
-            entry[:-3] if entry.endswith(".md") else entry))
+            entry.removesuffix(".md")))
         if not name:
             continue
         out.append((name, fm, body.strip(), cand))

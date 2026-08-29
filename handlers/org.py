@@ -1,16 +1,22 @@
 import re
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import config as cfg
 from database import (
-    get_user, get_role, get_domain, set_role,
-    category_stats, category_products, set_product_flag,
-    capo_team_stats, count_total_refs, count_qualified_refs,
-    create_coupon, ROLES, ROLE_FA,
+    capo_team_stats,
+    category_products,
+    category_stats,
+    count_qualified_refs,
+    count_total_refs,
+    create_coupon,
+    get_domain,
+    get_role,
+    get_user,
+    set_product_flag,
 )
 from utils import edit_safe
 

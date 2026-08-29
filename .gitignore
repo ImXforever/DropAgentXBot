@@ -1,9 +1,16 @@
 # secrets — NEVER commit
 .env
+.env.*
 
 # runtime data
 data/
 uploads/
+*.db
+*.db-wal
+*.db-shm
+.restore-pending.db
+node_modules/
+*.session
 
 # python
 __pycache__/

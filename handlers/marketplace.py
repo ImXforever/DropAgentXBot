@@ -1,19 +1,30 @@
-from aiogram import Router, F
+import math as _math
 import os
+
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
-from database import (
-    search_products, get_product, get_user, update_credits,
-    is_product_purchased_by_user, get_db,
-    get_coupon, get_coupon_by_id,
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LabeledPrice,
+    Message,
 )
+
 from config import config
-from utils import get_or_create_user,  send_safe, edit_safe
-from aiogram.types import LabeledPrice
-from aiogram.fsm.state import State as _St
-import math as _math
-from aiogram.types import FSInputFile
+from database import (
+    get_coupon,
+    get_coupon_by_id,
+    get_db,
+    get_product,
+    get_user,
+    is_product_purchased_by_user,
+    search_products,
+    update_credits,
+)
+from utils import edit_safe, get_or_create_user, send_safe
 
 router = Router()
 
@@ -482,7 +493,7 @@ async def review_entry(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("rvs_"))
 async def review_submit(callback: CallbackQuery):
     _, pid, stars = callback.data.split("_")
-    from database import add_review, product_rating, is_product_purchased_by_user
+    from database import add_review, is_product_purchased_by_user, product_rating
     # integrity gate: forged callbacks cannot inject fake ratings
     if not await is_product_purchased_by_user(int(pid), callback.from_user.id):
         await callback.answer("⛔ فقط خریدار واقعی می‌تواند امتیاز بدهد.", show_alert=True)

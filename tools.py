@@ -8,7 +8,6 @@ import json
 
 from config import config as cfg
 
-
 # ---------- OpenAI-format tool specs ----------
 
 TOOL_SPECS = [
@@ -112,6 +111,7 @@ TOOL_SPECS = [
 
 # --- V3: File tools ---
 from file_tools import TOOL_SPECS as _FILE_SPECS
+
 TOOL_SPECS.extend(_FILE_SPECS)
 
 # --- V3: Terminal sandbox ---
@@ -125,15 +125,26 @@ TOOL_SPECS.append({"type": "function", "function": {
 
 # --- V3: Browser automation ---
 from browser_tools import TOOL_SPECS as _BROWSER_SPECS
+
 TOOL_SPECS.extend(_BROWSER_SPECS)
 
 
 async def execute_tool(name: str, args: dict, user_id: int) -> str:
     from database import (
-        search_products, get_my_products, get_user, update_product_field,
-        get_role, create_coupon, kb_save, kb_search,
-        count_total_refs, count_qualified_refs, get_db, usdt_to_credits,
-        get_all_users_count, get_total_products, get_total_sales,
+        count_qualified_refs,
+        count_total_refs,
+        create_coupon,
+        get_all_users_count,
+        get_db,
+        get_my_products,
+        get_role,
+        get_total_products,
+        get_total_sales,
+        get_user,
+        kb_save,
+        kb_search,
+        search_products,
+        update_product_field,
     )
     args = args or {}
     try:
@@ -241,7 +252,7 @@ async def execute_tool(name: str, args: dict, user_id: int) -> str:
             role = await get_role(user_id)
             if role not in ("soldier", "capo", "underboss") and user_id not in cfg.ADMIN_IDS:
                 return json.dumps({"error": "تصویرسازی فقط برای سرباز به بالاست."})
-            from media_ai import generate_image
+            from media_v2 import generate_image
             path = await generate_image(args.get("prompt", ""))
             return json.dumps({"saved": path})
 
@@ -318,9 +329,16 @@ async def execute_tool(name: str, args: dict, user_id: int) -> str:
             "browser_get_images": lambda a: browser_get_images(),
         }
         if name in browser_tools_map:
-            from browser_tools import (browser_navigate, browser_snapshot, browser_click,
-                                        browser_type, browser_scroll, browser_back,
-                                        browser_get_links, browser_get_images)
+            from browser_tools import (
+                browser_back,
+                browser_click,
+                browser_get_images,
+                browser_get_links,
+                browser_navigate,
+                browser_scroll,
+                browser_snapshot,
+                browser_type,
+            )
             return await browser_tools_map[name](args)
 
         return json.dumps({"error": f"ابزار ناشناخته: {name}"})

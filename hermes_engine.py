@@ -1,10 +1,10 @@
-import os
-import re
-import json
-import random
-import shutil
 import asyncio
+import json
 import logging
+import os
+import random
+import re
+import shutil
 
 import httpx
 
@@ -330,10 +330,16 @@ async def chat_with_tools(
                 args = {}
             result = await executor(name, args)
             used.append(name)
+            # v2: Token Saver — compress noisy tool output before it costs tokens.
+            try:
+                from token_saver import maybe_compress_tool_output
+                rendered = maybe_compress_tool_output(str(result))
+            except Exception:
+                rendered = str(result)
             convo.append({
                 "role": "tool",
                 "tool_call_id": tc.get("id", ""),
-                "content": str(result)[:2000],
+                "content": rendered[:2000],
             })
     # exhausted iterations → ask for plain synthesis
     convo.append({"role": "user", "content":

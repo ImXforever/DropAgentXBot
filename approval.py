@@ -14,11 +14,9 @@ ApprovalDecision with full reasoning.
 import hashlib
 import json
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,51 +25,51 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 BLOCK_PATTERNS = [
-    re.compile(r"\brm\s+(-\w*r\w*\s+)?/", re.I),
-    re.compile(r"\brm\s+(-\w*r\w*\s+)~", re.I),
-    re.compile(r"\bmkfs\b", re.I),
-    re.compile(r"\bdd\s+if=.*of=/dev/", re.I),
-    re.compile(r"\bformat\s+[a-zA-Z]:", re.I),
-    re.compile(r"\b(SYSTEM|SAM|SECURITY|boot)\s+registry\b", re.I),
-    re.compile(r"\bcd\s+/\s*&&", re.I),
-    re.compile(r":\(\)\{\s*:\|:\s*&\s*\}", re.I),
-    re.compile(r">\s*/dev/sd[a-z]", re.I),
-    re.compile(r"shutdown|reboot|poweroff|halt", re.I),
-    re.compile(r"chmod\s+777\s+/", re.I),
-    re.compile(r"\bsudo\s+rm\b", re.I),
+    re.compile(r"\brm\s+(-\w*r\w*\s+)?/", re.IGNORECASE),
+    re.compile(r"\brm\s+(-\w*r\w*\s+)~", re.IGNORECASE),
+    re.compile(r"\bmkfs\b", re.IGNORECASE),
+    re.compile(r"\bdd\s+if=.*of=/dev/", re.IGNORECASE),
+    re.compile(r"\bformat\s+[a-zA-Z]:", re.IGNORECASE),
+    re.compile(r"\b(SYSTEM|SAM|SECURITY|boot)\s+registry\b", re.IGNORECASE),
+    re.compile(r"\bcd\s+/\s*&&", re.IGNORECASE),
+    re.compile(r":\(\)\{\s*:\|:\s*&\s*\}", re.IGNORECASE),
+    re.compile(r">\s*/dev/sd[a-z]", re.IGNORECASE),
+    re.compile(r"shutdown|reboot|poweroff|halt", re.IGNORECASE),
+    re.compile(r"chmod\s+777\s+/", re.IGNORECASE),
+    re.compile(r"\bsudo\s+rm\b", re.IGNORECASE),
 ]
 
 GUARD_PATTERNS = [
-    re.compile(r"\b(pip\s+install|npm\s+i|npm\s+install|yarn\s+add|apt\s+(install|remove|purge)|brew\s+install)\b", re.I),
-    re.compile(r"\b(curl|wget|ssh|scp|rsync|sftp)\b", re.I),
-    re.compile(r"\bdocker\s+(run|exec|rm|stop|kill|push|pull)\b", re.I),
-    re.compile(r"\bkubectl\b", re.I),
-    re.compile(r"\bdocker\s+compose\b", re.I),
-    re.compile(r"\brm\s+(-[a-zA-Z]*\s+)*\S+", re.I),
-    re.compile(r"\bmv\s+.+/\s*$", re.I),
-    re.compile(r">\s*\S+", re.I),
-    re.compile(r"\benv\b.*=", re.I),
-    re.compile(r"\bexport\b.*=", re.I),
-    re.compile(r"\bcurl\s.*\|\s*(bash|sh)\b", re.I),
-    re.compile(r"\bchmod\b", re.I),
-    re.compile(r"\bchown\b", re.I),
-    re.compile(r"\bsudo\b", re.I),
-    re.compile(r"\bDROP\s+TABLE\b", re.I),
-    re.compile(r"\bDELETE\s+FROM\b", re.I),
-    re.compile(r"\bTRUNCATE\b", re.I),
-    re.compile(r"\bkill\s+-9\b", re.I),
-    re.compile(r"\bpkill\b", re.I),
-    re.compile(r"\bunzip\b", re.I),
-    re.compile(r"\btar\s+.*x\w*f\b", re.I),
-    re.compile(r"\b7z\s+(x|e)\b", re.I),
+    re.compile(r"\b(pip\s+install|npm\s+i|npm\s+install|yarn\s+add|apt\s+(install|remove|purge)|brew\s+install)\b", re.IGNORECASE),
+    re.compile(r"\b(curl|wget|ssh|scp|rsync|sftp)\b", re.IGNORECASE),
+    re.compile(r"\bdocker\s+(run|exec|rm|stop|kill|push|pull)\b", re.IGNORECASE),
+    re.compile(r"\bkubectl\b", re.IGNORECASE),
+    re.compile(r"\bdocker\s+compose\b", re.IGNORECASE),
+    re.compile(r"\brm\s+(-[a-zA-Z]*\s+)*\S+", re.IGNORECASE),
+    re.compile(r"\bmv\s+.+/\s*$", re.IGNORECASE),
+    re.compile(r">\s*\S+", re.IGNORECASE),
+    re.compile(r"\benv\b.*=", re.IGNORECASE),
+    re.compile(r"\bexport\b.*=", re.IGNORECASE),
+    re.compile(r"\bcurl\s.*\|\s*(bash|sh)\b", re.IGNORECASE),
+    re.compile(r"\bchmod\b", re.IGNORECASE),
+    re.compile(r"\bchown\b", re.IGNORECASE),
+    re.compile(r"\bsudo\b", re.IGNORECASE),
+    re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE),
+    re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE),
+    re.compile(r"\bTRUNCATE\b", re.IGNORECASE),
+    re.compile(r"\bkill\s+-9\b", re.IGNORECASE),
+    re.compile(r"\bpkill\b", re.IGNORECASE),
+    re.compile(r"\bunzip\b", re.IGNORECASE),
+    re.compile(r"\btar\s+.*x\w*f\b", re.IGNORECASE),
+    re.compile(r"\b7z\s+(x|e)\b", re.IGNORECASE),
 ]
 
 SAFE_PATTERNS = [
-    re.compile(r"\b(python|python3|node|npm)\s+-c\b", re.I),
-    re.compile(r"\bgit\s+(status|log|diff|branch|show|remote|tag)\b", re.I),
-    re.compile(r"\b(ls|pwd|echo|date|whoami|which|cat|head|tail|wc|grep|find|sort|uniq)\b", re.I),
-    re.compile(r"\b(pytest|unittest|ruff|black|isort|mypy)\b", re.I),
-    re.compile(r"\bpip\s+(list|show|freeze)\b", re.I),
+    re.compile(r"\b(python|python3|node|npm)\s+-c\b", re.IGNORECASE),
+    re.compile(r"\bgit\s+(status|log|diff|branch|show|remote|tag)\b", re.IGNORECASE),
+    re.compile(r"\b(ls|pwd|echo|date|whoami|which|cat|head|tail|wc|grep|find|sort|uniq)\b", re.IGNORECASE),
+    re.compile(r"\b(pytest|unittest|ruff|black|isort|mypy)\b", re.IGNORECASE),
+    re.compile(r"\bpip\s+(list|show|freeze)\b", re.IGNORECASE),
 ]
 
 # =========================================================
@@ -79,32 +77,32 @@ SAFE_PATTERNS = [
 # =========================================================
 
 INJECTION_PATTERNS = [
-    re.compile(r"\{\{.*eval.*\}\}", re.I),              # template injection
-    re.compile(r"\{\{.*exec.*\}\}", re.I),
-    re.compile(r"<script[^>]*>", re.I),                   # XSS
-    re.compile(r"on\w+\s*=\s*['\"]?\s*javascript:", re.I),  # event handler injection
-    re.compile(r"__import__\s*\(", re.I),                 # Python import injection
-    re.compile(r"subprocess\.(?:call|run|Popen)", re.I),  # subprocess injection
-    re.compile(r"os\.(?:system|popen)\s*\(", re.I),        # OS command injection
-    re.compile(r"eval\s*\(", re.I),                        # eval injection
-    re.compile(r"exec\s*\(", re.I),                        # exec injection
-    re.compile(r"UNION\s+SELECT", re.I),                   # SQL injection
-    re.compile(r"';?\s*DROP\s", re.I),                      # SQL drop
-    re.compile(r"\bbase64\b.*\bdecode\b.*\bexec\b", re.I),  # base64→exec
-    re.compile(r"\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}", re.I),  # hex-encoded commands
-    re.compile(r"\bcurl\b.*\|\s*(?:bash|sh|zsh)\b", re.I),    # pipe to shell
-    re.compile(r"\bwget\b.*\|\s*(?:bash|sh|zsh)\b", re.I),
-    re.compile(r"\bsh\s*-c\b", re.I),
+    re.compile(r"\{\{.*eval.*\}\}", re.IGNORECASE),              # template injection
+    re.compile(r"\{\{.*exec.*\}\}", re.IGNORECASE),
+    re.compile(r"<script[^>]*>", re.IGNORECASE),                   # XSS
+    re.compile(r"on\w+\s*=\s*['\"]?\s*javascript:", re.IGNORECASE),  # event handler injection
+    re.compile(r"__import__\s*\(", re.IGNORECASE),                 # Python import injection
+    re.compile(r"subprocess\.(?:call|run|Popen)", re.IGNORECASE),  # subprocess injection
+    re.compile(r"os\.(?:system|popen)\s*\(", re.IGNORECASE),        # OS command injection
+    re.compile(r"eval\s*\(", re.IGNORECASE),                        # eval injection
+    re.compile(r"exec\s*\(", re.IGNORECASE),                        # exec injection
+    re.compile(r"UNION\s+SELECT", re.IGNORECASE),                   # SQL injection
+    re.compile(r"';?\s*DROP\s", re.IGNORECASE),                      # SQL drop
+    re.compile(r"\bbase64\b.*\bdecode\b.*\bexec\b", re.IGNORECASE),  # base64→exec
+    re.compile(r"\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}", re.IGNORECASE),  # hex-encoded commands
+    re.compile(r"\bcurl\b.*\|\s*(?:bash|sh|zsh)\b", re.IGNORECASE),    # pipe to shell
+    re.compile(r"\bwget\b.*\|\s*(?:bash|sh|zsh)\b", re.IGNORECASE),
+    re.compile(r"\bsh\s*-c\b", re.IGNORECASE),
 ]
 
 MALWARE_INDICATORS = [
-    re.compile(r"reverse\s+shell", re.I),
-    re.compile(r"nc\s+-l[ep]", re.I),                      # netcat listener
-    re.compile(r"bash\s+-i\b", re.I),                       # interactive bash
-    re.compile(r"/dev/tcp/", re.I),                          # bash reverse shell
-    re.compile(r"msfvenom|metasploit", re.I),
-    re.compile(r"keylogger|backdoor|trojan", re.I),
-    re.compile(r"crypto\s*mining|stratum\+tcp", re.I),       # mining
+    re.compile(r"reverse\s+shell", re.IGNORECASE),
+    re.compile(r"nc\s+-l[ep]", re.IGNORECASE),                      # netcat listener
+    re.compile(r"bash\s+-i\b", re.IGNORECASE),                       # interactive bash
+    re.compile(r"/dev/tcp/", re.IGNORECASE),                          # bash reverse shell
+    re.compile(r"msfvenom|metasploit", re.IGNORECASE),
+    re.compile(r"keylogger|backdoor|trojan", re.IGNORECASE),
+    re.compile(r"crypto\s*mining|stratum\+tcp", re.IGNORECASE),       # mining
 ]
 
 
@@ -113,20 +111,20 @@ MALWARE_INDICATORS = [
 # =========================================================
 
 PHISHING_INDICATORS = [
-    re.compile(r"(?:login|signin|verify|secure|account|paypal|apple|microsoft)\b.*\.(?!com|org|net)", re.I),
-    re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", re.I),  # raw IP URL
-    re.compile(r"\.onion\b", re.I),                              # tor
-    re.compile(r"bit\.ly|tinyurl|t\.co", re.I),                  # shorteners
+    re.compile(r"(?:login|signin|verify|secure|account|paypal|apple|microsoft)\b.*\.(?!com|org|net)", re.IGNORECASE),
+    re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", re.IGNORECASE),  # raw IP URL
+    re.compile(r"\.onion\b", re.IGNORECASE),                              # tor
+    re.compile(r"bit\.ly|tinyurl|t\.co", re.IGNORECASE),                  # shorteners
 ]
 
 SSRF_PATTERNS = [
-    re.compile(r"169\.254\.", re.I),
-    re.compile(r"127\.0\.", re.I),
-    re.compile(r"10\.\d+\.\d+\.\d+", re.I),
-    re.compile(r"172\.(1[6-9]|2\d|3[01])\.", re.I),
-    re.compile(r"192\.168\.", re.I),
-    re.compile(r"metadata\.google", re.I),
-    re.compile(r"localhost", re.I),
+    re.compile(r"169\.254\.", re.IGNORECASE),
+    re.compile(r"127\.0\.", re.IGNORECASE),
+    re.compile(r"10\.\d+\.\d+\.\d+", re.IGNORECASE),
+    re.compile(r"172\.(1[6-9]|2\d|3[01])\.", re.IGNORECASE),
+    re.compile(r"192\.168\.", re.IGNORECASE),
+    re.compile(r"metadata\.google", re.IGNORECASE),
+    re.compile(r"localhost", re.IGNORECASE),
 ]
 
 
@@ -213,7 +211,7 @@ def analyze_url_safety(url: str) -> dict:
             risk += 5
 
     # Suspicious TLDs
-    if re.search(r"\.(ru|cn|tk|ml|ga|cf|gq|pw)\b", url, re.I):
+    if re.search(r"\.(ru|cn|tk|ml|ga|cf|gq|pw)\b", url, re.IGNORECASE):
         findings.append("TLD مشکوک")
         risk += 1
 
@@ -329,17 +327,17 @@ async def audit_history(user_id: int = 0, limit: int = 20) -> list[dict]:
 
 _AUTO_APPROVE_CONTEXTS = [
     # In a test suite, auto-approve test-related commands
-    re.compile(r"(pytest|unittest|test_|_test\.py)\b", re.I),
-    re.compile(r"\b(ruff|black|isort|mypy|flake8)\b", re.I),
+    re.compile(r"(pytest|unittest|test_|_test\.py)\b", re.IGNORECASE),
+    re.compile(r"\b(ruff|black|isort|mypy|flake8)\b", re.IGNORECASE),
 ]
 
 _AUTO_REJECT_CONTEXTS = [
-    re.compile(r"(format\s+[a-zA-Z]:|rm\s+-rf\s+/)", re.I),
-    re.compile(r"eval\s*\(\s*input", re.I),   # never auto-approve eval(input())
+    re.compile(r"(format\s+[a-zA-Z]:|rm\s+-rf\s+/)", re.IGNORECASE),
+    re.compile(r"eval\s*\(\s*input", re.IGNORECASE),   # never auto-approve eval(input())
 ]
 
 
-def check_auto_rules(command: str, context: str = "") -> Optional[str]:
+def check_auto_rules(command: str, context: str = "") -> str | None:
     """Check if command should be auto-approved or auto-rejected.
     Returns 'approve', 'reject', or None (needs manual review).
     """
@@ -450,7 +448,6 @@ def classify_url(url: str, role: str = "associate") -> ApprovalDecision:
 # =========================================================
 
 _pending_approvals: dict[str, dict] = {}
-import time
 
 
 def _gen_approval_id(command: str, user_id: int) -> str:

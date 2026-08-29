@@ -26,10 +26,7 @@ import ipaddress
 import logging
 import os
 import re
-import time
 import urllib.parse
-from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +131,7 @@ class BrowserManager:
         self._history.clear()
 
 
-_browser: Optional[BrowserManager] = None
+_browser: BrowserManager | None = None
 
 
 async def _get_browser() -> BrowserManager:

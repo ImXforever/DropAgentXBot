@@ -20,8 +20,9 @@ Features:
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +63,14 @@ class BatchResult:
 
     def summary(self) -> str:
         lines = [
-            f"📊 **نتیجه Batch**",
+            "📊 **نتیجه Batch**",
             f"• کل: {self.total}",
             f"• موفق: {self.succeeded} ({self.success_rate:.0f}%)",
             f"• ناموفق: {self.failed}",
             f"• مدت: {self.duration:.1f}s",
         ]
         if self.errors:
-            lines.append(f"\n❌ خطاها:")
+            lines.append("\n❌ خطاها:")
             for e in self.errors[:5]:
                 lines.append(f"  • {e[:100]}")
         return "\n".join(lines)

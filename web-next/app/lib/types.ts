@@ -28,49 +28,6 @@ export type Product = {
   icon: string;
   tone: string;
   badge?: string;
-  /** Real backend fields (from `/api/app/*`) */
-  priceCredits?: number;
-  usd?: number;
-  description?: string;
-  photoUrl?: string;
-  creatorId?: number;
-  creatorUsername?: string;
-  likeCount?: number;
-  commentCount?: number;
-  saveCount?: number;
-  isFeatured?: boolean;
-  liked?: boolean;
-  saved?: boolean;
-  rank?: number;
-};
-
-/** Shape returned by the real backend for a Mini App user (`/api/app/me`). */
-export type Me = {
-  id: number;
-  name: string;
-  username: string;
-  credits: number;
-  role: string;
-};
-
-/** Category chip from `/api/app/categories`. */
-export type Category = {
-  key: string;
-  fa: string;
-  icon: string;
-  count: number;
-};
-
-/** Paged feed response from `/api/app/feed` and `/api/app/trending`. */
-export type FeedResponse = {
-  items: Array<Record<string, unknown>>;
-  next?: number | null;
-};
-
-/** Search response from `/api/app/search`. */
-export type SearchResponse = {
-  products: Array<Record<string, unknown>>;
-  users: Array<Record<string, unknown>>;
 };
 
 export type Post = {

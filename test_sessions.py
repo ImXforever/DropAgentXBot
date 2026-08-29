@@ -14,13 +14,22 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test.db")
 
 
 async def main():
-    from database import init_db, create_user
+    from database import create_user, init_db
     from session_store import (
-        session_create, session_update_title, session_touch, session_list,
-        session_delete, session_active, session_get,
-        session_add_msg, session_messages, session_search,
-        session_export_json, session_export_md, session_export_file,
+        session_active,
+        session_add_msg,
+        session_create,
+        session_delete,
+        session_export_file,
+        session_export_json,
+        session_export_md,
+        session_get,
+        session_list,
+        session_messages,
         session_resume_suggestion,
+        session_search,
+        session_touch,
+        session_update_title,
     )
     await init_db()
     await create_user(1, "alice", "Alice")

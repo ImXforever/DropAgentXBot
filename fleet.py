@@ -12,11 +12,10 @@
 """
 
 import asyncio
-import json
 import logging
 
 from config import config as cfg
-from database import kb_search, kb_save, mem_recent
+from database import kb_save, kb_search, mem_recent
 
 logger = logging.getLogger(__name__)
 

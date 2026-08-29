@@ -157,21 +157,4 @@ body{
 #toast.show{opacity:1;transform:translateX(-50%)}
 #toast.ok{border-color:#00ff8866}#toast.err{border-color:var(--red)}
 
-/* ---------- V1.1.2 Premium Effects ---------- */
-body::before{
-  content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:
-    radial-gradient(600px 300px at 15% 20%, #00ff880a, transparent 50%),
-    radial-gradient(500px 280px at 80% 80%, #39d7ff08, transparent 50%),
-    radial-gradient(400px 200px at 50% 0%, #a78bfa07, transparent 50%);
-  animation:aurora 25s ease-in-out infinite alternate;
-}
-@keyframes aurora{0%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}100%{opacity:.7;transform:scale(.98)}}
-
-.card,.glass{box-shadow:0 4px 20px #00000044;transition:transform .25s,box-shadow .25s}
-.card:hover,.glass:hover{transform:translateY(-3px);box-shadow:0 8px 30px #00000066,0 0 16px var(--em-glow)}
-
-@keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
-.skel{background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sh 1.6s infinite;border-radius:var(--r-m);height:120px;margin-bottom:10px}
-
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

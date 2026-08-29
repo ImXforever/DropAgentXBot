@@ -21,10 +21,11 @@ import os
 import shutil
 import tempfile
 import time
+import zipfile
 
 logger = logging.getLogger(__name__)
 
-from config import config  # noqa: E402
+from config import config
 
 _BOT = None          # aiogram Bot instance when started from bot.py
 _APP = None          # FastAPI app cache
@@ -44,19 +45,33 @@ def _sign(payload: str) -> str:
     return hmac.new(_secret(), payload.encode(), hashlib.sha256).hexdigest()
 
 
+def _secret_is_default() -> bool:
+    """F8-0.6.0: WEB_SECRET و BOT_TOKEN هر دو خالی → امضا با رشتهٔ معروف dev → کوکی جعل‌پذیر."""
+    return not os.getenv("WEB_SECRET") and not os.getenv("BOT_TOKEN")
+
+
+def _admin_sign(payload: str) -> str:
+    """F9-0.6.0: امضای توکن ادمین مقید به WEB_PASSWORD — عوض‌کردن رمز همهٔ
+    نشست‌های ادمینِ قبلی را بی‌اعتبار می‌کند (توکن دزدی با تغییر رمز می‌میرد)."""
+    key = hashlib.sha256(_secret() + b"::admin::" + os.getenv("WEB_PASSWORD", "").encode()).digest()
+    return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
+
+
 def _cookie_secure() -> bool:
-    return os.getenv("COOKIE_SECURE", "1" if os.getenv("APP_ENV", "production") == "production" else "0") == "1"
+    # پیش‌فرض ۰: روی HTTP ساده (http://IP:8080) کوکی Secure توسط مرورگر دور ریخته می‌شود
+    # و لاگین ادمین بی‌پایان می‌شد. پشت TLS مقدار COOKIE_SECURE=1 بده.
+    return os.getenv("COOKIE_SECURE", "0") == "1"
 
 
 def _make_token() -> str:
     payload = f"admin.{int(time.time()) + 7 * 24 * 3600}"
-    return f"{payload}.{_sign(payload)}"
+    return f"{payload}.{_admin_sign(payload)}"
 
 
 def _verify_token(tok: str) -> bool:
     try:
         payload, sig = tok.rsplit(".", 1)
-        if not hmac.compare_digest(_sign(payload), sig):
+        if not hmac.compare_digest(_admin_sign(payload), sig):
             return False
         role, exp = payload.split(".")
         return role == "admin" and int(exp) > time.time()
@@ -137,6 +152,14 @@ def _app_uid_from_request(request) -> int | None:
         return None
 
 
+def _is_private_ip(ip: str) -> bool:
+    import ipaddress as _ip
+    try:
+        return _ip.ip_address(ip).is_private
+    except ValueError:
+        return False
+
+
 # ---------- app factory ----------
 
 def build_app():
@@ -146,8 +169,8 @@ def build_app():
 
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-    from starlette.background import BackgroundTask
     from pydantic import BaseModel
+    from starlette.background import BackgroundTask
 
     WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
@@ -180,6 +203,8 @@ def build_app():
         if not hmac.compare_digest(body.password, pw):
             _rate_fail(ip)
             raise HTTPException(401, "رمز اشتباه است")
+        if _secret_is_default():
+            raise HTTPException(503, "WEB_SECRET تنظیم نشده — کوکی امن ممکن نیست. WEB_SECRET را در .env ست کن.")
         resp = JSONResponse({"ok": True})
         resp.set_cookie("hweb", _make_token(), max_age=7 * 24 * 3600,
                         httponly=True, samesite="lax", secure=_cookie_secure(), path="/")
@@ -208,11 +233,89 @@ def build_app():
             return RedirectResponse("/login", 302)
         return FileResponse(os.path.join(WEB_DIR, "admin.html"))
 
+    @app.get("/insights")
+    async def page_insights(request: Request):
+        if not _is_admin(request):
+            return RedirectResponse("/login", 302)
+        return FileResponse(os.path.join(WEB_DIR, "insights.html"))
+
+    _LINKS_TMPL = os.path.join(WEB_DIR, "links.html")
+
+    @app.get("/links")
+    async def page_links(request: Request):
+        """۱.۰.۰ «تک»: هاب شیشه‌ای همهٔ آدرس‌های پلتفرم — کاربر/ادمین."""
+        from fastapi.responses import HTMLResponse
+        page_html = open(_LINKS_TMPL, encoding="utf-8").read()
+        bot = (os.getenv("BOT_USERNAME", "") or "DropAgentXBot").strip().lstrip("@")
+        sup = (config.SUPPORT_CONTACT or "@ImXforevr").strip().lstrip("@")
+        if _is_admin(request):
+            admin_section = '''
+<div class="grid">
+  <a class="glass c-gold" href="/admin">
+    <span class="ic">📊</span>
+    <span class="tx"><span class="t">پنل ادمین</span><span class="d">داشبورد، مودریشن، مالی</span></span>
+    <span class="go">←</span>
+  </a>
+  <a class="glass c-gold" href="/insights">
+    <span class="ic">📈</span>
+    <span class="tx"><span class="t">تحلیل روژن</span><span class="d">نمودار رشد ۱۴ روزه + CSV</span></span>
+    <span class="go">←</span>
+  </a>
+  <a class="glass c-gold" href="/live">
+    <span class="ic">🔴</span>
+    <span class="tx"><span class="t">داشبورد زنده</span><span class="d">استریم لحظه‌ای رویدادها</span></span>
+    <span class="go">←</span>
+  </a>
+  <a class="glass c-gold" href="/cockpit">
+    <span class="ic">🧠</span>
+    <span class="tx"><span class="t">کاکپیت هرمس</span><span class="d">چت مستقیم با موتور AI</span></span>
+    <span class="go">←</span>
+  </a>
+  <a class="glass c-gold" href="/api/admin/backup">
+    <span class="ic">💾</span>
+    <span class="tx"><span class="t">بکاپ دیتابیس</span><span class="d">دانلود فوری SQLite</span></span>
+    <span class="go">←</span>
+  </a>
+  <a class="glass c-gold" href="/api/admin/export/users.csv">
+    <span class="ic">📤</span>
+    <span class="tx"><span class="t">خروجی CSV کاربران</span><span class="d">سازگار با اکسل فارسی</span></span>
+    <span class="go">←</span>
+  </a>
+</div>'''
+        else:
+            admin_section = '''
+<div class="grid">
+  <a class="glass" href="/login">
+    <span class="ic">🔐</span>
+    <span class="tx"><span class="t">ورود ادمین</span><span class="d">پنل، تحلیل و ابزارهای مدیریت</span></span>
+    <span class="go">←</span>
+  </a>
+</div>
+<p class="note">بخش ادمین پس از ورود نمایش داده می‌شود.</p>'''
+        page_html = (page_html.replace("__BOT__", bot)
+                              .replace("__SUPPORT__", sup)
+                              .replace("__ADMIN_SECTION__", admin_section))
+        return HTMLResponse(page_html)
+
     @app.get("/login")
     async def page_login():
         return FileResponse(os.path.join(WEB_DIR, "login.html"))
 
     # ----- SenPai cockpit (admin-only AI chat cockpit, client-side app) -----
+
+    @app.get("/landing")
+    async def landing_page():
+        return FileResponse(os.path.join(WEB_DIR, "landing.html"), media_type="text/html")
+
+    @app.get("/showcase3d")
+    async def showcase3d():
+        return FileResponse(os.path.join(WEB_DIR, "showcase3d.html"), media_type="text/html")
+
+    @app.get("/live")
+    async def page_live(request: Request):
+        if not _is_admin(request):
+            return RedirectResponse("/login", 302)
+        return FileResponse(os.path.join(WEB_DIR, "live.html"))
 
     @app.get("/cockpit")
     async def page_cockpit(request: Request):
@@ -240,9 +343,24 @@ def build_app():
     _RATE_WINDOW = 60        # seconds
     _RATE_MAX = 40           # max requests per window
 
+    _STATIC_SKIP = ("/media/", "/assets/", "/fonts/", "/vendor/", "/app/",
+                    "/sw.js", "/icon.svg", "/manifest.webmanifest", "/offline.html")
+
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
+        # F6-0.6.0: استاتیک/مدیا از سهمیهٔ 40/min خارج — یک صفحهٔ فروشگاه با بیست
+        # عکس نباید کاربر عادی را 429 کند.
+        if request.url.path.startswith(_STATIC_SKIP):
+            return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
+        # F5-0.6.0: پشت reverse-proxy همه 127.0.0.1 هستند → سهمیهٔ مشترک، یعنی یک
+        # مهاجم کل IP را قفل می‌کند. فقط وقتی اتصال از IP پرایوت است به اولین hop
+        # معتبر X-Forwarded-For اعتماد می‌کنیم (تست مستقیم جعل XFF بی‌اثر است).
+        if _is_private_ip(client_ip):
+            xff = request.headers.get("x-forwarded-for", "")
+            first = xff.split(",")[0].strip() if xff else ""
+            if first and not _is_private_ip(first):
+                client_ip = first
         now = time.time()
         # clean old entries
         if client_ip in _rate_store:
@@ -423,9 +541,85 @@ def build_app():
         ok_all = all(c["ok"] for c in checks)
         return {"ok": ok_all, "checks": checks}
 
+    # ------------------------------------------------------------------
+    # v2.0.0 — Observability, identity & RL endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/admin/logs")
+    async def admin_logs(request: Request, limit: int = 30, level: str = "",
+                         user_id: int = 0, logger: str = ""):
+        _guard(request)
+        from database import raw_db
+        q = "SELECT id, ts, level, logger, msg, user_id FROM app_logs"
+        params = []
+        cond = []
+        if level:
+            cond.append("level = ?"); params.append(level.upper())
+        if user_id:
+            cond.append("user_id = ?"); params.append(user_id)
+        if logger:
+            cond.append("logger LIKE ?"); params.append(f"%{logger}%")
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY id DESC LIMIT ?"; params.append(min(limit, 200))
+        async with raw_db() as db:
+            cur = await db.execute(q, params)
+            rows = [dict(zip(("id", "ts", "level", "logger", "msg", "user_id"), r))
+                    for r in await cur.fetchall()]
+        return {"ok": True, "logs": rows, "count": len(rows)}
+
+    @app.get("/api/admin/errors")
+    async def admin_errors(request: Request, since: float = 0):
+        _guard(request)
+        from database import raw_db
+        async with raw_db() as db:
+            by_logger = await db.execute(
+                "SELECT logger, COUNT(*) FROM app_logs WHERE level IN ('ERROR','CRITICAL') "
+                "GROUP BY logger ORDER BY 2 DESC")
+            lgr = [(str(r[0]), r[1]) for r in await by_logger.fetchall()]
+            recent = await db.execute(
+                "SELECT id, ts, level, logger, msg, data, exc FROM app_logs "
+                "WHERE level IN ('ERROR','CRITICAL') ORDER BY id DESC LIMIT 12")
+            rows = [dict(zip(("id", "ts", "level", "logger", "msg", "data", "exc"), r))
+                    for r in await recent.fetchall()]
+        return {"ok": True, "by_logger": lgr, "recent": rows}
+
+    @app.get("/api/admin/identity/{uid}")
+    async def admin_identity(request: Request, uid: int):
+        _guard(request)
+        try:
+            from identity_rl import get_identity
+            snap = await get_identity(uid)
+            return {"ok": True, "identity": snap}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @app.get("/api/admin/rl-summary")
+    async def admin_rl_summary(request: Request):
+        _guard(request)
+        from database import raw_db
+        async with raw_db() as db:
+            cur = await db.execute(
+                "SELECT label, COUNT(*) FROM rl_identity GROUP BY label ORDER BY 2 DESC")
+            labels = [(str(r[0]), r[1]) for r in await cur.fetchall()]
+        return {"ok": True, "labels": labels}
+
+    @app.get("/api/admin/v2health")
+    async def admin_v2health(request: Request):
+        _guard(request)
+        from config import VERSION
+        flags = {
+            "identity_rl": config.IDENTITY_RL_ENABLED,
+            "memory2": config.MEMORY2_ENABLED,
+            "image_gen_backend": config.IMAGE_GEN_BACKEND,
+            "log_to_db": config.LOG_TO_DB,
+            "gemini_api_set": bool(config.GEMINI_API_KEY),
+        }
+        return {"ok": True, "version": VERSION, "app": config.APP_NAME, "flags": flags}
+
     @app.get("/api/pub/catalog")
     async def pub_catalog(q: str = "", cat: str = "", limit: int = 24, offset: int = 0):
-        from database import search_products, product_rating
+        from database import product_rating, search_products
         limit = max(1, min(limit, 60))
         items = await search_products(q.strip(), cat.strip(), limit, max(0, offset))
         out = []
@@ -453,6 +647,62 @@ def build_app():
                           for r in rows]}
 
     # ----- admin: stats -----
+
+    # ----- v0.9.9 «روژن»: تحلیل رشد + خروجی CSV -----
+
+    @app.get("/api/admin/insights")
+    async def admin_insights(request: Request):
+        _guard(request)
+        from database import insights_series, insights_totals
+        return {"series": await insights_series(14), "totals": await insights_totals()}
+
+    @app.get("/api/admin/export/{kind}")
+    async def admin_export_csv(kind: str, request: Request):
+        _guard(request)
+        kind = kind.removesuffix(".csv")  # ۱.۰.۰: /export/users.csv هم مثل users
+        import csv as _csv
+        import io as _io
+
+        from fastapi.responses import Response
+
+        from database import get_db
+        queries = {
+            "users": (
+                (
+                    "SELECT user_id, username, first_name, credits, is_banned, "
+                    "created_at FROM users ORDER BY user_id"
+                ),
+                ["user_id", "username", "first_name", "credits", "is_banned", "created_at"]),
+            "products": (
+                (
+                    "SELECT id, title, category, price_credits, sales_count, status "
+                    "FROM products ORDER BY id"
+                ),
+                ["id", "title", "category", "price_credits", "sales_count", "status"]),
+            "sales": (
+                (
+                    "SELECT p.id, p.buyer_id, pr.title AS product, p.price_credits, p.created_at "
+                    "FROM purchases p LEFT JOIN products pr ON pr.id=p.product_id ORDER BY p.id"
+                ),
+                ["id", "buyer_id", "product", "price_credits", "created_at"]),
+        }
+        if kind not in queries:
+            raise HTTPException(404)
+        sql, header = queries[kind]
+        async with get_db() as db:
+            cur = await db.execute(sql)
+            rows = await cur.fetchall()
+        buf = _io.StringIO()
+        w = _csv.writer(buf)
+        w.writerow(header)
+        for r in rows:
+            w.writerow([r[k] if not isinstance(r, dict) else r.get(k, "") for k in header])
+        stamp = time.strftime("%Y%m%d-%H%M")
+        return Response(
+            "\ufeff" + buf.getvalue(),   # BOM تا اکسل فارسی را درست نشان دهد
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="dropagentx-{kind}-{stamp}.csv"'},
+        )
 
     @app.get("/api/admin/stats")
     async def admin_stats(request: Request):
@@ -524,11 +774,68 @@ def build_app():
 
     # ----- admin: products / moderation -----
 
+    # ----- v4.2.0: استریم زنده (SSE) برای داشبورد real-time -----
+
+    @app.get("/api/admin/stream")
+    async def admin_stream(request: Request):
+        _guard(request)
+        import json as _json
+
+        from fastapi.responses import StreamingResponse
+
+        async def _snapshot() -> dict:
+            from database import get_db
+            midnight = _local_midnight()
+            async with get_db() as db:
+                async def one(sql, params=()):
+                    cur = await db.execute(sql, params)
+                    return (await cur.fetchone())[0]
+                snap = {
+                    "users_total": await one("SELECT COUNT(*) FROM users"),
+                    "users_new": await one("SELECT COUNT(*) FROM users WHERE created_at >= ?", (midnight,)),
+                    "users_banned": await one("SELECT COUNT(*) FROM users WHERE is_banned=1"),
+                    "sales_total": await one("SELECT COUNT(*) FROM purchases"),
+                    "sales_today": await one("SELECT COUNT(*) FROM purchases WHERE purchased_at >= ?", (midnight,)),
+                    "volume_today": await one("SELECT COALESCE(SUM(price_credits),0) FROM purchases WHERE purchased_at >= ?", (midnight,)),
+                    "credits_circulating": await one("SELECT COALESCE(SUM(credits),0) FROM users WHERE is_banned=0"),
+                    "products_active": await one("SELECT COUNT(*) FROM products WHERE is_active=1 AND status='approved'"),
+                    "products_pending": await one("SELECT COUNT(*) FROM products WHERE status='pending'"),
+                    "deposits_pending": await one("SELECT COUNT(*) FROM deposits WHERE status='pending'"),
+                    "withdrawals_pending": await one("SELECT COUNT(*) FROM withdrawals WHERE status='pending'"),
+                    "tasks_active": await one("SELECT COUNT(*) FROM tasks WHERE is_active=1"),
+                    "tickets_open": await one("SELECT COUNT(*) FROM tickets WHERE status != 'closed'"),
+                    "ts": int(time.time()),
+                }
+            size = 0
+            for ext in ("", "-wal", "-shm"):
+                p = config.DB_PATH + ext
+                if os.path.exists(p):
+                    size += os.path.getsize(p)
+            snap["db_bytes"] = size
+            return snap
+
+        async def gen():
+            try:
+                for _ in range(400):        # ~۲۰ دقیقه؛ EventSource خودش reconnect می‌شود
+                    try:
+                        snap = await _snapshot()
+                        yield f"data: {_json.dumps(snap, ensure_ascii=False)}\n\n"
+                    except Exception:
+                        yield ": tick\n\n"
+                    await asyncio.sleep(3)
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache",
+                                          "X-Accel-Buffering": "no",
+                                          "Connection": "keep-alive"})
+
     @app.get("/api/admin/products")
     async def admin_products(request: Request, status: str = "", q: str = "",
                              limit: int = 50, offset: int = 0):
         _guard(request)
-        from database import get_db, escape_like
+        from database import escape_like, get_db
         conds, params = ["1=1"], []
         if status in ("pending", "approved", "rejected"):
             conds.append("p.status = ?"); params.append(status)
@@ -595,8 +902,7 @@ def build_app():
         _guard(request)
         if body.action not in ("approved", "rejected"):
             raise HTTPException(400)
-        from database import (set_deposit_status, approve_deposit_manual,
-                              usdt_to_credits)
+        from database import approve_deposit_manual, set_deposit_status, usdt_to_credits
         if body.action == "approved":
             dep = await approve_deposit_manual(did, reviewed_by=0)
         else:
@@ -625,7 +931,7 @@ def build_app():
         _guard(request)
         if body.action not in ("paid", "rejected"):
             raise HTTPException(400)
-        from database import set_withdrawal_status, reject_withdrawal_and_refund
+        from database import reject_withdrawal_and_refund, set_withdrawal_status
         if body.action == "rejected":
             wd = await reject_withdrawal_and_refund(wid, reviewed_by=0)
         else:
@@ -641,8 +947,9 @@ def build_app():
 
     @app.get("/api/admin/users")
     async def admin_users(request: Request, q: str = "", limit: int = 50):
+        limit = max(1, min(int(limit), 200))  # F9: بدون سقف → DoS سبک با limit=10^9
         _guard(request)
-        from database import get_db, escape_like
+        from database import escape_like, get_db
         cond, extra = "1=1", []
         if q.strip():
             term = q.strip().lstrip("@")
@@ -690,7 +997,7 @@ def build_app():
     @app.get("/api/admin/memory/{uid}")
     async def admin_memory(uid: int, request: Request):
         _guard(request)
-        from memory import get_provider, purchase_profile, _count_memories
+        from memory import _count_memories, get_provider, purchase_profile
         p = await get_provider()
         return {
             "memories": await p.list_all(uid),
@@ -860,8 +1167,7 @@ def build_app():
         # Browser admin sessions are signed but do not carry a Telegram user id.
         # Keep the audit value explicit until an admin identity is added to the
         # web login flow; never dereference a placeholder object here.
-        admin_id = 0
-        from database import get_user, set_role, raw_db, get_db
+        from database import get_db, get_user, raw_db
         u = await get_user(body.user_id)
         if not u:
             raise HTTPException(404, "کاربر پیدا نشد")
@@ -907,7 +1213,8 @@ def build_app():
     @app.post("/api/admin/hunters/perm")
     async def admin_hunter_perm(body: HunterPermIn, request: Request):
         _guard(request)
-        valid_perms = {p[0] for p in database.HUNTER_PERMS}
+        from database import HUNTER_PERMS
+        valid_perms = {p[0] for p in HUNTER_PERMS}
         if body.perm not in valid_perms:
             raise HTTPException(400, "دسترسی نامعتبر")
         from database import set_hunter_perm
@@ -917,7 +1224,7 @@ def build_app():
     @app.get("/api/admin/hunters/all-users")
     async def admin_all_users_search(request: Request, q: str = ""):
         _guard(request)
-        from database import get_db, escape_like
+        from database import escape_like, get_db
         term = f"%{escape_like(q.strip().lstrip('@'))}%"
         async with get_db() as db:
             cur = await db.execute(
@@ -1060,7 +1367,7 @@ def build_app():
             raise HTTPException(400, "این فایل ZIP معتبر نیست")
         except HTTPException:
             raise
-        except Exception as e:
+        except Exception:
             raise HTTPException(400, "خطای سرور — لطفاً بعداً تلاش کنید")
         finally:
             try:
@@ -1112,6 +1419,20 @@ def build_app():
         finally:
             _bcast_busy = False
 
+    # ── v0.5.1: سرو فایل‌های استاتیک وب (sw.js / manifest / icon / fonts / vendor / assets)
+    # Mount در ریشه ولی «آخر از همه» → فقط مسیرهایی که route ندارند را سرو می‌کند.
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=False), name="web-static")
+
+    @app.on_event("startup")
+    async def _ensure_db_ready():
+        """وب استقلال‌پذیر: اگر DB خالی بود (وب-تنها/تست)، خودش بسازد — idempotent."""
+        try:
+            from database import init_db
+            await init_db()
+        except Exception as e:
+            print(f"[web_admin] init_db warning: {e}", flush=True)
+
     return app
 
 
@@ -1128,7 +1449,8 @@ async def _notify(user_id: int, text: str):
 async def start_server(bot=None):
     global _BOT
     _BOT = bot
-    port = int(os.getenv("WEB_PORT", "8080") or 8080)
+    # Railway injects PORT; otherwise fall back to WEB_PORT / 8080.
+    port = int(os.getenv("PORT") or os.getenv("WEB_PORT", "8080") or 8080)
     host = os.getenv("WEB_HOST", "0.0.0.0")
     try:
         import uvicorn

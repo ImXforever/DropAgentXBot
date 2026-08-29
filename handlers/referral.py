@@ -1,16 +1,21 @@
 import random
 
-from aiogram import Router, F, Bot
+from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import config as cfg
 from database import (
-    get_db, get_user, update_credits,
-    count_total_refs, count_qualified_refs,
-    list_top_referrers, is_milestone_awarded, award_ref_milestone,
+    award_ref_milestone,
+    count_qualified_refs,
+    count_total_refs,
+    get_db,
+    get_user,
+    is_milestone_awarded,
+    list_top_referrers,
+    update_credits,
 )
-from utils import get_or_create_user,  edit_safe
+from utils import edit_safe, get_or_create_user
 
 router = Router()
 
@@ -43,9 +48,11 @@ async def check_qualification(uid: int) -> bool:
         cur = await db.execute(
             "SELECT COUNT(*) FROM purchases WHERE buyer_id=?", (uid,))
         has_purchase = (await cur.fetchone())[0] > 0
+        # FIX(v2.0 / BUG-REF-2): confirm_task قبلاً status='verified' می‌نوشت ولی
+        # اینجا فقط 'completed' شمرده می‌شد → تسک‌ها هرگز واجد شرایط دعوت نمی‌کردند.
         cur = await db.execute(
             """SELECT COUNT(DISTINCT task_id) FROM task_completions
-               WHERE user_id=? AND status='completed'""", (uid,))
+               WHERE user_id=? AND status IN ('completed','verified')""", (uid,))
         tasks_done = (await cur.fetchone())[0]
     return has_purchase or tasks_done >= 3
 

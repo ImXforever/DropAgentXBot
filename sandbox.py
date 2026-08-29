@@ -19,7 +19,6 @@ import asyncio
 import os
 import shutil
 import tempfile
-import time
 
 from hermes_engine import get_dynamic_setting
 
@@ -61,7 +60,7 @@ async def run_shell(command: str) -> str:
     if not await _enabled():
         return "🔒 سندباکس توسط ادمین غیرفعال است."
 
-    from approval import classify_command, create_approval_request, ApprovalResult
+    from approval import classify_command, create_approval_request
 
     result = classify_command(command)
 
@@ -90,7 +89,7 @@ async def run_shell(command: str) -> str:
 
 async def check_approval(approval_id: str) -> bool:
     """Check if a pending approval was granted."""
-    from approval import approve_request, _pending_approvals
+    from approval import _pending_approvals
     return _pending_approvals.pop(approval_id, None) is not None
 
 
@@ -125,6 +124,7 @@ async def _run_local(code: str, suffix: str, interpreter_cmd) -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=tempfile.gettempdir(),
+            env=_sandbox_env(),
         )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
@@ -233,8 +233,20 @@ def _docker_ok() -> bool:
 
 
 def _local_allowed() -> bool:
-    app_env = os.getenv("APP_ENV", "production").lower()
-    return app_env in {"dev", "test", "local"}
+    # F7-0.6.0: اجرای محلیِ کدِ AI بدون ایزولاسیون فقط با پرچم صریح — APP_ENV=local
+    # به‌تنهایی روی سرور واقعی یعنی RCE از طریق prompt-injection.
+    if os.getenv("SANDBOX_ALLOW_LOCAL", "") != "1":
+        return False
+    return os.getenv("APP_ENV", "production").lower() in {"dev", "test", "local"}
+
+
+_SANDBOX_ENV_KEEP = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "PYTHONPATH",
+                     "PYTHONHOME", "SYSTEMROOT", "COMSPEC", "WINDIR", "TERM"}
+
+
+def _sandbox_env() -> dict:
+    """اسرار (توکن/کلید/رمز) به پروسهٔ فرزند به ارث نمی‌رسند."""
+    return {k: v for k, v in os.environ.items() if k in _SANDBOX_ENV_KEEP}
 
 
 def _sys_py() -> str:
