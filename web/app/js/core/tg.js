@@ -10,7 +10,7 @@ window.DGX = { user: null, ready: false, isLoggedIn: false };
   if (tg) {
     try {
       tg.ready(); tg.expand();
-      if (has(6.1)) { tg.setHeaderColor('#050505'); tg.setBackgroundColor('#050505'); }
+      if (has(6.1)) { tg.setHeaderColor('#04060f'); tg.setBackgroundColor('#04060f'); }
       if (has(7.7) && tg.disableVerticalSwipes) tg.disableVerticalSwipes();
     } catch (_) {}
   }

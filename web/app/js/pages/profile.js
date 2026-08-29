@@ -39,10 +39,11 @@ DGX.pages.profile = async (view, params) => {
         <div><b>${DGX.kfmt(d.total_sales)}</b><span>فروش</span></div>
         <div><b class="num">${(d.products.reduce((s, p) => s + (+p.price_credits || 0), 0) / 1000).toFixed(2)}$</b><span>ارزش مغازه</span></div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
         <a class="btn btn-ghost" href="#/wallet">💰 کیف پول</a>
         <a class="btn btn-ghost" href="#/activity">📜 فعالیت</a>
       </div>
+      <div style="margin-bottom:4px">${DGX.hubBar()}</div>
       <h3 style="margin-bottom:10px">🏪 ویترین ${isMe ? 'من' : 'این سازنده'}</h3>
       <div class="grid3" id="storeGrid"></div>
       <div style="height:80px"></div>

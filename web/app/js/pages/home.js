@@ -8,6 +8,8 @@ DGX.pages.home = async (view, params) => {
   let busy = false, ended = false;
 
   view.innerHTML = `
+    <div id="stories" class="stories"></div>
+    ${DGX.hubBar()}
     <div class="seg" style="margin-bottom:10px">
       <button data-tab="foryou" class="${mode === 'foryou' ? 'on' : ''}">🔥 برای تو</button>
       <button data-tab="following" class="${mode === 'following' ? 'on' : ''}">👥 فالوینگ‌ها</button>
@@ -16,9 +18,14 @@ DGX.pages.home = async (view, params) => {
     <div id="feed">${DGX.skelCards(3)}</div>
     <div id="more" style="text-align:center;color:var(--dim2);padding:14px"></div>`;
 
+  // Instagram-style stories (built-in "همه" + categories)
+  const stBox = DGX.$('#stories');
+  if (stBox) stBox.innerHTML = DGX.storiesBox([]);
+
   // categories chips
   try {
     const cats = (await DGX.api('/api/app/categories')).items;
+    if (stBox) stBox.innerHTML = DGX.storiesBox(cats);
     const box = DGX.$('#homeCats');
     if (box) {
       box.innerHTML = `<button class="chip ${cat === 'all' ? 'on' : ''}"

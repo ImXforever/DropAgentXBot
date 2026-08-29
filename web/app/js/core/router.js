@@ -47,6 +47,8 @@ DGX.route = () => {
   const params = Object.fromEntries(new URLSearchParams(qs || ''));
   const page = name || 'home';
   const fn = DGX.pages[page];
+  const fab = document.getElementById('hubFab');
+  if (fab) fab.style.display = (page === 'product' || page === 'agent') ? 'none' : 'flex';
   document.querySelectorAll('.bn-item').forEach(a =>
     a.classList.toggle('on', a.dataset.hash === '#/' + page));
   const titles = { home: 'خانه', explore: 'کشف', search: 'جستجو',

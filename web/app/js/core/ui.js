@@ -56,6 +56,63 @@ DGX.statBtn = (icon, count, cls, attr) =>
   `<button class="stat ${cls || ''}" ${attr}>
      <svg><use href="#${icon}"/></svg><span>${DGX.kfmt(count)}</span></button>`;
 
+/* ════════ Glass web-address hub (links to platform web apps) ════════ */
+DGX.hubItems = [
+  { url: '/links',      ic: '🧭', t: 'هاب لینک', cls: '' },
+  { url: '/admin',      ic: '📊', t: 'پنل ادمین', cls: 'g-gold' },
+  { url: '/insights',   ic: '📈', t: 'تحلیل', cls: '' },
+  { url: '/live',       ic: '🔴', t: 'زنده', cls: 'g-green' },
+  { url: '/cockpit',    ic: '🧠', t: 'هرمسا وب', cls: '' },
+  { url: '/shop',       ic: '🛍', t: 'فروشگاه', cls: 'g-gold' },
+  { url: '/landing',    ic: '🚀', t: 'لندینگ', cls: '' },
+  { url: 'tg://resolve?domain=DropAgentXBot', ic: '✈️', t: 'بات', cls: 'g-green' },
+];
+
+DGX.glassBtn = it => `
+  <a class="glass-btn ${it.cls || ''}"
+     href="${it.url}" ${it.url.startsWith('http') || it.url.startsWith('tg://') ? 'target="_blank"' : ''}
+     onclick="DGX.haptic('light')">
+    <span class="g-ic">${it.ic}</span>
+    <span class="g-t">${it.t}</span>
+  </a>`;
+
+/* 4-button compact bar (used under home hero) */
+DGX.hubBar = () => `<div class="hub-bar">${DGX.hubItems.slice(0, 4).map(DGX.glassBtn).join('')}</div>`;
+
+DGX.openHub = () => {
+  const sheet = document.getElementById('hubSheet');
+  DGX.haptic('medium');
+  sheet.innerHTML = `
+    <div class="panel">
+      <div class="grip"></div>
+      <div class="p-head">
+        <span class="p-title">مکعب وب‌اپ‌ها</span>
+        <span class="p-close" onclick="DGX.closeHub()">✕ بستن</span>
+      </div>
+      <div class="hub-list">${DGX.hubItems.map(DGX.glassBtn).join('')}</div>
+    </div>`;
+  sheet.classList.add('open');
+};
+DGX.closeHub = () => {
+  const s = document.getElementById('hubSheet');
+  s.classList.remove('open'); s.innerHTML = '';
+};
+
+/* Instagram-style story rings from categories */
+DGX.storiesBox = cats => `
+  <div class="stories">
+    <div class="story" onclick="location.hash='#/home?cat=all'">
+      <div class="ring"><div class="inner" style="font-size:30px">🏠</div></div>
+      <div class="nm">همه</div>
+    </div>
+    ${(cats || []).map(c => `
+    <div class="story" onclick="location.hash='#/home?cat=${c.key}'">
+      <div class="ring"><div class="inner">${c.icon || '📦'}</div></div>
+      <div class="nm">${c.fa}</div>
+      <div class="ct">${DGX.kfmt(c.count)}</div>
+    </div>`).join('')}
+  </div>`;
+
 /* product card → HTML (used by home/explore/search/profile) */
 DGX.postCard = p => `
   <article class="post" data-pid="${+p.id}">
@@ -89,16 +146,19 @@ DGX.postCard = p => `
           🛒 ${DGX.kfmt(p.sales_count)} فروش</span>
       </div>
     </div>
-    <div class="post-stats">
+    <div class="ig-actions">
       ${DGX.statBtn(p.liked ? 'i-heart-f' : 'i-heart', p.like_count,
                     p.liked ? 'on like' : '', `data-eng="like"`)}
-      ${DGX.statBtn('i-dislike', p.dislike_count, p.disliked ? 'on dislike' : '',
-                    `data-eng="dislike"`)}
       ${DGX.statBtn('i-comment', p.comment_count, '', `data-comments="1"`)}
       ${DGX.statBtn('i-save', p.save_count, p.saved ? 'on save' : '', `data-eng="save"`)}
       ${DGX.statBtn('i-repost', 0, '', `data-share="1"`)}
       <span class="stat ctr"><svg><use href="#i-eye"/></svg>
         <span>${DGX.kfmt(p.views)}</span> · CTR ${p.views ? Math.max(1, Math.round((+p.sales_count || 0) * 100 / p.views)) : '—'}%</span>
+    </div>
+    <div class="post-stats">
+      ${DGX.statBtn('i-dislike', p.dislike_count, p.disliked ? 'on dislike' : '',
+                    `data-eng="dislike"`)}
+      <span style="margin-inline-start:auto;color:var(--dim2);font-size:10.5px">🛒 ${DGX.kfmt(p.sales_count)} فروش</span>
     </div>
     <div class="post-actions">
       <button class="btn btn-primary" data-buy="${+p.id}">🛒 خرید فوری</button>
