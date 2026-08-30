@@ -61,9 +61,24 @@ DGX.route = () => {
   if (fab) fab.style.display = (page === 'product' || page === 'agent') ? 'none' : 'flex';
   document.querySelectorAll('.bn-item').forEach(a =>
     a.classList.toggle('on', a.dataset.hash === '#/' + page));
-  const titles = { home: 'خانه', explore: 'کشف', search: 'جستجو',
-                   product: 'محصول', create: 'ساخت محصول', profile: 'پروفایل',
-                   wallet: 'کیف پول', activity: 'فعالیت', agent: 'هرمسا' };
+  const titles = {
+    home: 'خانه', explore: 'کشف', search: 'جستجو',
+    product: 'محصول', create: 'ساخت محصول', profile: 'پروفایل',
+    wallet: 'کیف پول', activity: 'فعالیت', agent: 'هرمسا',
+    reels: 'ریلز', drops: 'دراپ‌های زنده', trending: 'ترندها',
+    fresh: 'تازه‌ها', story: 'استوری',
+    categories: 'دسته‌ها', category: 'دسته', collections: 'کالکشن‌ها', collection: 'کالکشن',
+    reviews: 'دیدگاه‌ها', seller: 'فروشگاه', related: 'مشابه‌ها', library: 'کتابخانه‌ی من',
+    order: 'سفارش', plans: 'پلن فروشنده',
+    notifications: 'اعلان‌ها', likes: 'پسندها', saved: 'ذخیره‌ها', people: 'خالق‌ها',
+    follows: 'فالوها', 'profile-edit': 'ویرایش پروفایل', share: 'دعوت دوستان',
+    'create-drop': 'ساخت دراپ', drafts: 'پیش‌نویس‌ها', dashboard: 'داشبورد فروشنده',
+    analytics: 'تحلیل فروش', 'products-manage': 'محصولات من', payouts: 'تسویه',
+    deposit: 'واریز', withdraw: 'برداشت', transactions: 'تراکنش‌ها', credits: 'کردیت',
+    settings: 'تنظیمات', help: 'راهنما', about: 'درباره', terms: 'قوانین',
+    privacy: 'حریم خصوصی', roadmap: 'نقشه‌ی راه', bot: 'دستورات بات',
+    status: 'وضعیت سرویس', sitemap: 'نقشه‌ی ۵۰ صفحه',
+  };
   DGX.renderTopbar(titles[page] || '');
   const view = document.getElementById('view');
   view.className = 'page';

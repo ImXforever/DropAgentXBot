@@ -2,7 +2,9 @@
 DGX.pages = DGX.pages || {};
 
 DGX.pages.home = async (view, params) => {
-  const mode = params.tab === 'following' ? 'following' : 'foryou';
+  /* v2.0: feed modes doubled — foryou | following | trend | fresh */
+  const tab = ['foryou','following','trend','fresh'].includes(params.tab) ? params.tab : 'foryou';
+  const mode = tab === 'following' ? 'following' : (tab === 'trend' ? 'trend' : 'foryou');
   const cat = params.cat || 'all';
   let cursor = parseInt(params.cursor || 0, 10);
   let busy = false, ended = false;
@@ -11,8 +13,10 @@ DGX.pages.home = async (view, params) => {
     <div id="stories" class="stories"></div>
     ${DGX.hubBar()}
     <div class="seg" style="margin-bottom:10px">
-      <button data-tab="foryou" class="${mode === 'foryou' ? 'on' : ''}">${DGX.icon('flame','ic-s')} برای تو</button>
-      <button data-tab="following" class="${mode === 'following' ? 'on' : ''}">${DGX.icon('users','ic-s')} فالوینگ‌ها</button>
+      <button data-tab="foryou" class="${tab === 'foryou' ? 'on' : ''}">${DGX.icon('flame','ic-s')} برای تو</button>
+      <button data-tab="following" class="${tab === 'following' ? 'on' : ''}">${DGX.icon('users','ic-s')} فالوینگ‌ها</button>
+      <button data-tab="trend" class="${tab === 'trend' ? 'on' : ''}">${DGX.icon('chart','ic-s')} ترند</button>
+      <button data-tab="fresh" class="${tab === 'fresh' ? 'on' : ''}">${DGX.icon('deposit','ic-s')} تازه‌ها</button>
     </div>
     <div class="chips" id="homeCats"></div>
     <div id="feed">${DGX.skelCards(3)}</div>
@@ -34,7 +38,7 @@ DGX.pages.home = async (view, params) => {
           `<button class="chip ${cat === c.key ? 'on' : ''}" data-c="${c.key}">
              ${c.icon} ${c.fa}${c.count ? ` · ${DGX.kfmt(c.count)}` : ''}</button>`).join('');
       box.querySelectorAll('.chip').forEach(ch => ch.onclick = () => {
-        location.hash = `#/home?tab=${mode}&cat=${ch.dataset.c}`;
+        location.hash = `#/home?tab=${tab}&cat=${ch.dataset.c}`;
       });
     }
   } catch (_) {}
@@ -55,7 +59,9 @@ DGX.pages.home = async (view, params) => {
         `/api/app/feed?mode=${mode}&cat=${encodeURIComponent(cat)}&cursor=${cursor}`);
       if (reset) feed.innerHTML = '';
       ended = d.next === null;
-      for (const p of d.items) feed.insertAdjacentHTML('beforeend', DGX.postCard(p));
+      const items = tab === 'fresh'
+        ? [...d.items].sort((a, b) => (b.created_at || 0) - (a.created_at || 0)) : d.items;
+      for (const p of items) feed.insertAdjacentHTML('beforeend', DGX.postCard(p));
       wire(feed);
       cursor = d.next ?? cursor;
       if (ended && !d.items.length && reset)

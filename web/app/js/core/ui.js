@@ -88,6 +88,7 @@ DGX.hubItems = [
   { url: '/shop',       ic: 'shop',   t: 'فروشگاه', cls: 'g-gold' },
   { url: '/landing',    ic: 'rocket', t: 'لندینگ', cls: '' },
   { url: 'tg://resolve?domain=DropAgentXBot', ic: 'send', t: 'بات', cls: 'g-green' },
+  { url: '#/sitemap', ic: 'compass', t: '۵۰ صفحه', cls: '' },
 ];
 DGX.hubItemsFor = () => DGX.hubItems.filter(it => !it.admin || DGX.isAdmin());
 
@@ -299,6 +300,51 @@ DGX.purchaseSuccess = (p, r) => {
   if (r && r.file_url) open(r.file_url, '_blank');
 };
 
+/* ════════ v2.0: local collections (likes / saved) + IG double-tap heart ════════ */
+DGX.remember = (card, type, on) => {
+  try {
+    const k = type === 'save' ? 'dgx_saved' : 'dgx_liked';
+    let l = JSON.parse(localStorage.getItem(k) || '[]');
+    const id = +card.dataset.pid;
+    if (!on) l = l.filter(x => x.id !== id);
+    else if (!l.find(x => x.id === id)) l.unshift({
+      id, t: Date.now(),
+      title: (card.querySelector('.post-title') || {}).textContent || '',
+      price: ((card.querySelector('.price') || {}).textContent || '').trim(),
+      photo: (card.querySelector('.post-media img') || {}).src || '' });
+    localStorage.setItem(k, JSON.stringify(l.slice(0, 200)));
+  } catch (_) {}
+};
+DGX.localList = k => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (_) { return []; } };
+DGX.dblLike = root => {   /* Instagram-style double-tap → big heart burst */
+  root.querySelectorAll('.post-media').forEach(m => {
+    if (m.dataset.dbl) return; m.dataset.dbl = '1';
+    m.ondblclick = e => {
+      e.preventDefault(); DGX.haptic('medium');
+      const card = m.closest('.post'), btn = card && card.querySelector('[data-eng="like"]');
+      const h = document.createElement('span');
+      h.className = 'heart-pop'; h.innerHTML = DGX.icon('heart-f', 'ic-xl');
+      m.appendChild(h); setTimeout(() => h.remove(), 750);
+      if (btn && !btn.classList.contains('on')) btn.click();
+    };
+  });
+};
+
+/* ════════ v2.0: 7-day sales bars (dashboard/analytics) ════════ */
+DGX.weekBars = rows => {
+  const days = Array.from({ length: 7 }, () => 0);
+  const now = Date.now() / 1000;
+  (rows || []).forEach(o => {
+    const age = now - (o.purchased_at || 0);
+    if (age >= 0 && age < 7 * 86400) days[6 - Math.floor(age / 86400)] += (o.price_credits || 0);
+  });
+  const max = Math.max(1, ...days);
+  const FA = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
+  return days.map((v, i) => `
+    <div class="wb"><i style="height:${Math.max(6, Math.round(v / max * 64))}px"></i>
+      <span>${v ? DGX.kfmt(v) : ''}</span><b>${FA[i]}</b></div>`).join('');
+};
+
 DGX.wireFeed = root => {
   root.querySelectorAll('[data-eng]').forEach(btn => btn.onclick = async () => {
     if (!DGX.requireAuth('لایک/سیو')) return;
@@ -309,6 +355,7 @@ DGX.wireFeed = root => {
       const cnt = btn.querySelector('span');
       cnt.textContent = DGX.kfmt(Math.max(0, (parseInt(cnt.textContent.replace(/[^\d]/g, ''), 10) || 0) + (r.on ? 1 : -1)));
       btn.classList.toggle('on', r.on);
+        if (type === 'like' || type === 'save') DGX.remember(card, type, r.on);
       if (type === 'like') {
         const ic = btn.querySelector('use');
         ic.setAttribute('href', r.on ? '#i-heart-f' : '#i-heart');
@@ -326,6 +373,7 @@ DGX.wireFeed = root => {
                  '🛍 ' + (p ? p.textContent : 'DropAgentX'));
   });
   /* v1.3: purchases flow through the neon confirm-sheet → success overlay */
+  DGX.dblLike(root);
   root.querySelectorAll('[data-buy]').forEach(btn => btn.onclick = () => {
     if (!DGX.requireAuth('خرید')) return;
     DGX.confirmBuy({ id: +btn.dataset.buy, title: btn.dataset.title || '',
