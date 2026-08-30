@@ -11,8 +11,8 @@ DGX.pages.home = async (view, params) => {
     <div id="stories" class="stories"></div>
     ${DGX.hubBar()}
     <div class="seg" style="margin-bottom:10px">
-      <button data-tab="foryou" class="${mode === 'foryou' ? 'on' : ''}">🔥 برای تو</button>
-      <button data-tab="following" class="${mode === 'following' ? 'on' : ''}">👥 فالوینگ‌ها</button>
+      <button data-tab="foryou" class="${mode === 'foryou' ? 'on' : ''}">${DGX.icon('flame','ic-s')} برای تو</button>
+      <button data-tab="following" class="${mode === 'following' ? 'on' : ''}">${DGX.icon('users','ic-s')} فالوینگ‌ها</button>
     </div>
     <div class="chips" id="homeCats"></div>
     <div id="feed">${DGX.skelCards(3)}</div>
@@ -59,70 +59,27 @@ DGX.pages.home = async (view, params) => {
       wire(feed);
       cursor = d.next ?? cursor;
       if (ended && !d.items.length && reset)
-        feed.innerHTML = `<div class="empty"><div class="big">🌱</div>
+        feed.innerHTML = `<div class="empty"><div class="big">${DGX.icon('flame','big-ic')}</div>
           هنوز پستی نیست — اولین سازنده باش!<br><br>
-          <button class="btn btn-primary" onclick="location.hash='#/create'">➕ ساخت محصول</button></div>`;
-      more.textContent = ended ? (d.items.length ? '✨ همه را دیدی' : '') : '…';
+          <button class="btn btn-primary" onclick="location.hash='#/create'">${DGX.icon('plus','ic-s')} ساخت محصول</button></div>`;
+      more.textContent = ended ? (d.items.length ? 'همه را دیدی' : '') : '…';
     } catch (e) {
       if (reset) feed.innerHTML =
-        `<div class="empty"><div class="big">📡</div>${e.msg || 'خطا'}
+        `<div class="empty"><div class="big">${DGX.icon('live','big-ic')}</div>${e.msg || 'خطا'}
          <br><br><button class="btn btn-ghost" onclick="location.reload()">تلاش مجدد</button></div>`;
     }
     busy = false;
   }
 
-  function wire(root) {
-    root.querySelectorAll('[data-eng]').forEach(btn => btn.onclick = async () => {
-      const card = btn.closest('.post');
-      const pid = +card.dataset.pid;
-      const type = btn.dataset.eng;
-      DGX.haptic('light');
-      try {
-        const r = await DGX.api('/api/app/engage', { body: { product_id: pid, type } });
-        const cnt = btn.querySelector('span');
-        cnt.textContent = DGX.kfmt(Math.max(0, (+cnt.textContent.replace(/[KM]/g,
-          m => m === 'K' ? '000' : m === 'M' ? '00000' : '') || 0) + (r.on ? 1 : -1)));
-        btn.classList.toggle('on', r.on);
-        if (type === 'like') {
-          const ic = btn.querySelector('use');
-          ic.setAttribute('href', r.on ? '#i-heart-f' : '#i-heart');
-        }
-      } catch (e) { DGX.toast(e.msg || '', true); }
-    });
-    root.querySelectorAll('[data-comments]').forEach(btn => btn.onclick = () => {
-      const card = btn.closest('.post');
-      location.hash = '#/product?id=' + card.dataset.pid + '&comments=1';
-    });
-    root.querySelectorAll('[data-share]').forEach(btn => btn.onclick = async () => {
-      const card = btn.closest('.post');
-      const url = location.origin + '/#/product?id=' + card.dataset.pid;
-      try {
-        if (navigator.share) await navigator.share({ url, title: 'DropAgentX' });
-        else { await navigator.clipboard.writeText(url); DGX.toast('لینک کپی شد 🔗'); }
-      } catch (_) {}
-      DGX.haptic('medium');
-    });
-    root.querySelectorAll('[data-buy]').forEach(btn => btn.onclick = async () => {
-      const pid = +btn.dataset.buy;
-      DGX.haptic('medium');
-      btn.disabled = true; btn.textContent = '⏳ در حال پردازش…';
-      try {
-        const r = await DGX.api(`/api/app/buy/${pid}`, { body: {} });
-        DGX.toast(`خرید شد! 🎉 مانده: ${DGX.fmt(r.balance)} کردیت`);
-        btn.textContent = '✅ خریده‌شد';
-        if (r.file_url) open(r.file_url, '_blank');
-      } catch (e) {
-        btn.disabled = false; btn.textContent = '🛒 خرید فوری';
-        DGX.toast(e.msg || 'خرید ناموفق', true);
-      }
-    });
-  }
+  const wire = DGX.wireFeed;
 
   // infinite scroll
   const io = new IntersectionObserver(es => {
     if (es.some(x => x.isIntersecting)) load(false);
   }, { rootMargin: '600px' });
   io.observe(more);
+
+  DGX.ptr(view, async () => { await DGX.refreshMe(); await load(true); });
 
   await load(true);
 };

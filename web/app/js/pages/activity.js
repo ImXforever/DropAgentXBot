@@ -4,8 +4,8 @@ DGX.pages = DGX.pages || {};
 DGX.pages.activity = async (view) => {
   view.innerHTML = `
     <div class="seg" style="margin-bottom:14px">
-      <button class="on" data-t="bought">🛒 خریدهای من</button>
-      <button data-t="sold">💰 فروش‌های من</button>
+      <button class="on" data-t="bought">${DGX.icon('cart','ic-s')} خریدهای من</button>
+      <button data-t="sold">${DGX.icon('wallet','ic-s')} فروش‌های من</button>
     </div>
     <div id="actOut">${DGX.skelCards(2)}</div>`;
   const out = DGX.$('#actOut');
@@ -16,7 +16,7 @@ DGX.pages.activity = async (view) => {
   function render() {
     const rows = d[tab];
     if (!rows.length) {
-      out.innerHTML = `<div class="empty"><div class="big">${tab === 'bought' ? '🛍' : '🏷'}</div>
+      out.innerHTML = `<div class="empty"><div class="big">${DGX.icon(tab === 'bought' ? 'box' : 'trophy', 'big-ic')}</div>
         ${tab === 'bought' ? 'هنوز چیزی نخریدی — فید خانه پر از ایده است!' :
           'هنوز فروشی نداشتی — محصولت را منتشر کن و بفروش!'}</div>`;
       return;
@@ -25,7 +25,7 @@ DGX.pages.activity = async (view) => {
       <div class="rank-row">
         <span class="ic" style="width:42px;height:42px;border-radius:11px;flex:none;
           background:var(--surface2);display:flex;align-items:center;
-          justify-content:center;font-size:19px">📦</span>
+          justify-content:center">${DGX.icon('box')}</span>
         <div style="flex:1;min-width:0">
           <div class="rank-t">${DGX.esc(r.title)}</div>
           <div class="rank-s">${tab === 'bought'

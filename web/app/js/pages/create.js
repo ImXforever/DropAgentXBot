@@ -2,6 +2,7 @@
 DGX.pages = DGX.pages || {};
 
 DGX.pages.create = async (view) => {
+  if (!DGX.requireAuth('ساخت محصول')) { location.hash = '#/home'; return; }
   let step = 1;
   const data = { title: '', description: '', category: 'other', price_credits: 0 };
   const images = { main: null, feed: null, story: null };   // File objects
@@ -12,9 +13,9 @@ DGX.pages.create = async (view) => {
   view.innerHTML = `<div id="wiz"></div>`;
 
   const IMG_SPECS = {
-    main:  { ratio: '۱:۱',  w: 1080, h: 1080, hint: 'عکس اصلی محصول در صفحهٔ جزئیات', icon: '🖼️' },
-    feed:  { ratio: '۱۶:۹', w: 1920, h: 1080, hint: 'نمایش در فید خانه — مثل تامبنیل یوتیوب، جذاب‌تر بهتر', icon: '📺' },
-    story: { ratio: '۹:۱۶', w: 1080, h: 1920, hint: 'نمایش در اکسپلور — معرفی کوتاه محصول', icon: '📱' },
+    main:  { ratio: '۱:۱',  w: 1080, h: 1080, hint: 'عکس اصلی محصول در صفحهٔ جزئیات', icon: 'image' },
+    feed:  { ratio: '۱۶:۹', w: 1920, h: 1080, hint: 'نمایش در فید خانه — مثل تامبنیل یوتیوب، جذاب‌تر بهتر', icon: 'film' },
+    story: { ratio: '۹:۱۶', w: 1080, h: 1920, hint: 'نمایش در اکسپلور — معرفی کوتاه محصول', icon: 'camera' },
   };
 
   function render() {
@@ -22,7 +23,7 @@ DGX.pages.create = async (view) => {
     if (step === 1) {
       w.innerHTML = `
         <div class="step-dots"><i class="on"></i><i></i><i></i><i></i></div>
-        <h2 style="margin-bottom:4px">📦 محصولت را معرفی کن</h2>
+        <h2 style="margin-bottom:4px;display:flex;align-items:center;gap:7px">${DGX.icon('box')} محصولت را معرفی کن</h2>
         <p style="color:var(--dim);font-size:12.5px;margin-bottom:6px">اول چی می‌فروشی؟</p>
         <div class="field"><label>عنوان</label>
           <input id="wTitle" maxlength="120" value="${DGX.esc(data.title)}"
@@ -40,7 +41,7 @@ DGX.pages.create = async (view) => {
     } else if (step === 2) {
       w.innerHTML = `
         <div class="step-dots"><i class="on"></i><i class="on"></i><i></i><i></i></div>
-        <h2 style="margin-bottom:10px">🗂 دسته و قیمت</h2>
+        <h2 style="margin-bottom:10px;display:flex;align-items:center;gap:7px">${DGX.icon('puzzle')} دسته و قیمت</h2>
         <div class="field"><label>دسته‌بندی</label>
           <select id="wCat">${cats.map(c =>
             `<option value="${c.key}" ${data.category === c.key ? 'selected' : ''}>
@@ -53,7 +54,7 @@ DGX.pages.create = async (view) => {
             · کمیسیون پلتفرم بعد از فروش کسر می‌شود</div></div>
         <div style="display:flex;gap:9px">
           <button class="btn btn-ghost" onclick="DGX.pages.create._go(1)">→ قبل</button>
-          <button class="btn btn-primary" id="wNext" style="flex:1">بعدی ← عکس‌ها 🖼️</button></div>`;
+          <button class="btn btn-primary" id="wNext" style="flex:1">بعدی ← عکس‌ها ${DGX.icon('image','ic-s')}</button></div>`;
       const pr = w.querySelector('#wPrice');
       pr.oninput = () => {
         const v = +pr.value || 0;
@@ -70,20 +71,20 @@ DGX.pages.create = async (view) => {
       // ── IMAGE UPLOAD STEP ──
       w.innerHTML = `
         <div class="step-dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
-        <h2 style="margin-bottom:4px">🖼️ سه عکس لازم است</h2>
+        <h2 style="margin-bottom:4px;display:flex;align-items:center;gap:7px">${DGX.icon('image')} سه عکس لازم است</h2>
         <p style="color:var(--dim);font-size:11.5px;margin-bottom:14px;line-height:2">
           سیستم خودکار برش می‌زند و به اندازهٔ درست تبدیل می‌کند.<br>
           کیفیت بالاتر = نمایش بهتر = فروش بیشتر ✨</p>
         ${Object.entries(IMG_SPECS).map(([key, spec]) => `
           <div class="field">
-            <label>${spec.icon} ${key.toUpperCase()} (${spec.ratio}) — ${spec.hint}</label>
+            <label style="display:flex;align-items:center;gap:6px">${DGX.icon(spec.icon,'ic-s')} ${key.toUpperCase()} (${spec.ratio}) — ${spec.hint}</label>
             <div style="display:flex;gap:10px;align-items:center">
               <label class="dropzone" style="flex:none;width:${key==='story'?'70':'110'}px;
                 height:${key==='main'||key==='feed'?'70':'110'}px;padding:0;display:flex;
                 align-items:center;justify-content:center;font-size:22px;cursor:pointer;
                 border-radius:12px;border:2px dashed var(--line);overflow:hidden"
                 id="dz_${key}">
-                ${previews[key] ? `<img src="${previews[key]}" style="width:100%;height:100%;object-fit:cover">` : `📷`}
+                ${previews[key] ? `<img src="${previews[key]}" style="width:100%;height:100%;object-fit:cover">` : DGX.icon('camera','ic-l ph-g')}
               </label>
               <div style="flex:1;font-size:11px;color:var(--dim)">
                 ${spec.ratio} · ${spec.w}×${spec.h}px<br>
@@ -124,7 +125,7 @@ DGX.pages.create = async (view) => {
       };
     } else {
       // Step 4 — final check with real image previews
-      const catIcon = (cats.find(c => c.key === data.category) || {}).icon || '📦';
+      const catIcon = (cats.find(c => c.key === data.category) || {}).key ? DGX.catIcon(data.category) : DGX.icon('box','ic-l');
       const heroSrc = previews.feed || previews.main ||
         `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#101613"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="48">' + catIcon + '</text></svg>')}`;
 
@@ -163,7 +164,7 @@ DGX.pages.create = async (view) => {
           ⏳ پس از انتشار، ادمین بررسی می‌کند و در مارکت منتشر می‌شود.</div>
         <div style="display:flex;gap:9px">
           <button class="btn btn-ghost" onclick="DGX.pages.create._go(3)">→ قبل</button>
-          <button class="btn btn-primary" id="wPub" style="flex:1">🚀 انتشار محصول</button></div>
+          <button class="btn btn-primary" id="wPub" style="flex:1">${DGX.icon('rocket','ic-s')} انتشار محصول</button></div>
         <div style="height:80px"></div>`;
 
       w.querySelector('#wPub').onclick = async () => {
@@ -195,13 +196,13 @@ DGX.pages.create = async (view) => {
             <div class="empty" style="padding-top:90px">
               <div class="burst success-ring" style="width:74px;height:74px;border-radius:99px;
                 background:var(--em);color:#03130a;display:inline-flex;align-items:center;
-                justify-content:center;font-size:36px;margin-bottom:14px">🚀</div>
+                justify-content:center;margin-bottom:14px">${DGX.icon('rocket','ic-xl')}</div>
               <b style="font-size:17px">محصولت با ۳ عکس ثبت شد!</b><br>
               شماره: #${newPid}<br>${r.note}<br><br>
               <button class="btn btn-primary" onclick="location.hash='#/home'">برگشت به فید</button>
             </div>`;
         } catch (e) {
-          b.disabled = false; b.textContent = '🚀 انتشار محصول';
+          b.disabled = false; b.textContent = 'انتشار محصول';
           DGX.toast(e.msg || e.message || '', true);
         }
       };

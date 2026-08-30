@@ -4,10 +4,10 @@ DGX.pages = DGX.pages || {};
 DGX.pages.explore = async (view, params) => {
   view.innerHTML = `
     <div class="chips" id="exRange">
-      <button class="chip on" data-r="trend">🔥 ترند</button>
+      <button class="chip on" data-r="trend">${DGX.icon('flame','ic-s')} ترند</button>
       <button class="chip" data-r="new">🆕 جدید</button>
       <button class="chip" data-r="featured">⭐ ویژه</button>
-      <button class="chip" data-r="budget">💰 ارزان‌ها (زیر ۱۰۰)</button>
+      <button class="chip" data-r="budget">${DGX.icon('wallet','ic-s')} ارزان‌ها (زیر ۱۰۰)</button>
     </div>
     <div id="rankBox">${DGX.skelCards(3)}</div>
     <h2 style="margin:18px 0 10px">🗂 دسته‌بندی‌ها</h2>
@@ -34,17 +34,17 @@ DGX.pages.explore = async (view, params) => {
         items = (await DGX.api('/api/app/trending?limit=10')).items;
       }
       if (!items.length) { rankBox.innerHTML =
-        '<div class="empty"><div class="big">🕳</div>فعلاً چیزی اینجا نیست</div>'; return; }
+        '<div class="empty"><div class="big">' + DGX.icon('box','big-ic') + '</div>فعلاً چیزی اینجا نیست</div>'; return; }
       rankBox.innerHTML = items.map(p => `
         <a class="rank-row ${p.rank === 1 ? 'rank-1' : ''}" href="#/product?id=${+p.id}"
            style="text-decoration:none;color:inherit">
           <span class="rank-num">#${p.rank || '•'}</span>
           ${p.photo_url ? `<img class="rank-img" src="${DGX.esc(p.photo_url)}" loading="lazy">`
-                        : `<div class="rank-img" style="display:flex;align-items:center;justify-content:center">📦</div>`}
+                        : `<div class="rank-img" style="display:flex;align-items:center;justify-content:center">${DGX.icon('box','ic-l')}</div>`}
           <div class="rank-info">
             <div class="rank-t">${DGX.esc(p.title)}</div>
             <div class="rank-s">@${DGX.esc(p.creator_username || p.creator_name || '')} ·
-              🛒 ${DGX.kfmt(p.sales_count)} فروش</div>
+              ${DGX.icon('cart','ic-s')} ${DGX.kfmt(p.sales_count)} فروش</div>
           </div>
           <span class="num" style="color:var(--em);font-weight:800;font-size:12px;white-space:nowrap">
             ${DGX.fmt(p.price_credits)}</span>
@@ -56,7 +56,7 @@ DGX.pages.explore = async (view, params) => {
     const cats = (await DGX.api('/api/app/categories')).items;
     grid.innerHTML = cats.map(c => `
       <div class="cat-card" data-c="${c.key}">
-        <div class="ic">${c.icon}</div><div class="nm">${c.fa}</div>
+        <div class="ic">${DGX.catIcon(c.key)}</div><div class="nm">${c.fa}</div>
         <div class="ct num">${DGX.kfmt(c.count)}</div></div>`).join('');
     grid.querySelectorAll('.cat-card').forEach(el => el.onclick = () => {
       location.hash = `#/explore?r=${mode}&cat=${el.dataset.c}`;

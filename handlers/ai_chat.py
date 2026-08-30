@@ -366,7 +366,10 @@ async def process_chat(message: Message, state: FSMContext):
             pass
         try:
             from identity_rl import signal as rl_signal
-            rl_signal(message.from_user.id, "chat_message")
+            # FIX(v1.0.2): signal() is a coroutine — calling it without await
+            # created the coroutine but never ran it (RuntimeWarning) so the
+            # identity-RL engine never learned from chat messages.
+            await rl_signal(message.from_user.id, "chat_message")
         except Exception:
             pass
     except HermesEngineError as e:

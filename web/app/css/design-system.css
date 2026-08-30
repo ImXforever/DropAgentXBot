@@ -4,24 +4,25 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root{
-  --bg:#04060f; --surface:#0a0f1f; --surface2:#111a30;
-  --line:#1b2542; --line2:#263355;
-  --txt:#f3f6ff; --dim:#8fa0c9; --dim2:#4c5a7d;
-  --em:#00FF88; --em-dim:#00ff8826; --em-glow:#00ff8822;
+  /* v1.3 NEON — 0xBazaar DNA: near-black, charcoal surfaces, neon emerald,
+     cyan secondary glow, gold micro-accent only. Neutral lines — no navy. */
+  --bg:#050505; --surface:#0B0F0D; --surface2:#101613;
+  --line:#1c2420; --line2:#28352e;
+  --txt:#f4f8f6; --dim:#93a39b; --dim2:#4e5c55;
+  --em:#00FF88; --em-dim:#00ff8826; --em-glow:#00ff8830;
   --em-2:#00e67a;
-  --blue:#4d9fff; --blue-dim:#4d9fff22; --blue-glow:#4d9fff33;
-  --purple:#a78bfa; --purple-dim:#a78bfa22; --purple-glow:#a78bfa33;
-  --cyan:#39d7ff; --gold:#ffd166;
-  --red:#ff5c7a; --violet:#a78bfa;
+  --blue:#39d7ff; --blue-dim:#39d7ff1f; --blue-glow:#39d7ff2e;
+  --purple:#39d7ff; --purple-dim:#39d7ff1f; --purple-glow:#39d7ff2e;
+  --cyan:#39d7ff; --gold:#e8c46a; --red:#ff5c7a; --violet:#39d7ff;
   --r-s:10px; --r-m:14px; --r-l:18px; --r-xl:24px;
   --pad:16px; --gap:8px;
   --nav-h:62px;
-  --shadow-1:0 2px 12px #00000066;
-  --shadow-em:0 0 18px #00ff8830, 0 0 2px #00ff8855;
-  --shadow-blue:0 0 20px #4d9fff44;
-  --shadow-purple:0 0 20px #a78bfa44;
-  --glass-bg:rgba(18,26,48,.55);
-  --glass-brd:rgba(120,150,255,.22);
+  --shadow-1:0 2px 12px #00000070;
+  --shadow-em:0 0 18px #00ff8835, 0 0 2px #00ff8855;
+  --shadow-blue:0 0 20px #39d7ff33;
+  --shadow-purple:0 0 20px #39d7ff33;
+  --glass-bg:rgba(13,18,15,.6);
+  --glass-brd:rgba(0,255,136,.16);
   --font:'Vazirmatn',Tahoma,'Segoe UI',sans-serif;
 }
 
@@ -29,8 +30,8 @@
 html,body{height:100%}
 body{
   background:
-    radial-gradient(900px 460px at 88% -10%, #4d9fff14, transparent 60%),
-    radial-gradient(760px 420px at -8% 8%, #a78bfa16, transparent 55%),
+    radial-gradient(900px 460px at 88% -10%, #39d7ff0d, transparent 60%),
+    radial-gradient(760px 420px at -8% 8%, #00ff880f, transparent 55%),
     radial-gradient(620px 380px at 50% 115%, #00ff880c, transparent 55%),
     var(--bg);
   color:var(--txt); font-family:var(--font); font-size:14px;
@@ -253,3 +254,182 @@ body{
 #toast.ok{border-color:#00ff8866}#toast.err{border-color:var(--red)}
 
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ═══════════════════════════════════════════════════════════════
+   v1.1 MOBILE EXCELLENCE PASS — touch, a11y, role badges, PTR
+   ═══════════════════════════════════════════════════════════════ */
+
+/* numbers never jiggle (wallet, prices, stats) */
+.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:embed}
+
+/* kill the 300ms double-tap-zoom delay on every control */
+button,.btn,.chip,.stat,.bn-item,.icon-btn,.follow-btn,.pill-btn,.w-btn,
+.cat-card,.story,.glass-btn,.seg button,.dropzone{touch-action:manipulation}
+
+/* nav & stats are controls, not text */
+.bottomnav,.ig-actions,.post-stats,.seg,.chips{user-select:none;-webkit-user-select:none}
+
+/* no accidental horizontal pan on RTL pages */
+html,body{overflow-x:hidden;overflow-x:clip}
+#app{overflow-x:hidden}
+
+/* iOS momentum for inner scrollers */
+.chat-scroll,.stories,.chips,.hub-sheet .panel{-webkit-overflow-scrolling:touch}
+
+/* landscape (notches left/right) */
+@media (orientation:landscape){
+  .topbar{padding-inline-start:calc(var(--pad) + env(safe-area-inset-left,0px));
+          padding-inline-end:calc(var(--pad) + env(safe-area-inset-right,0px))}
+}
+
+/* bigger nav hit-area on small phones */
+@media (max-width:360px){
+  .bn-item svg{width:20px;height:20px}
+  .bn-item{font-size:9.5px}
+  :root{--pad:13px}
+}
+
+/* admin shield (topbar) — gold */
+.icon-btn.shield{border-color:#ffd16655;color:var(--gold)}
+.icon-btn.shield:active{border-color:var(--gold)}
+
+.btn-gold{background:linear-gradient(135deg,#ffd166,#fb8b5f);color:#241303;
+  box-shadow:0 0 16px #ffd16633}
+
+/* role badges (profile) */
+.badge-role{display:inline-flex;align-items:center;gap:4px;font-size:10px;
+  font-weight:800;border-radius:99px;padding:3px 10px;margin-inline-start:7px;
+  vertical-align:3px;border:1px solid}
+.badge-role.admin{color:var(--gold);border-color:#ffd16666;background:#ffd16614}
+.badge-role.hunter{color:var(--cyan);border-color:#39d7ff55;background:#39d7ff14}
+
+/* pull-to-refresh indicator */
+.ptr{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:height .18s,opacity .18s;color:var(--dim)}
+.ptr .ptr-i{font-size:20px;transition:.2s;display:inline-block}
+.ptr.ready .ptr-i{color:var(--em);transform:rotate(180deg)}
+.ptr .ptr-i.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* agent suggestion chips */
+.qchips{display:flex;gap:7px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
+.qchips::-webkit-scrollbar{display:none}
+.qchips .chip{white-space:nowrap;font-size:11.5px;padding:7px 13px}
+
+/* active nav pill (clearer affordance) */
+.bn-item.on{background:radial-gradient(60% 80% at 50% 100%,var(--em-dim),transparent 75%)}
+
+/* richer :active feedback for cards on touch */
+.cat-card:active,.g-item:active{transform:scale(.95)}
+
+/* ═══════════════════════════════════════════════════════════════
+   v1.2.1 ICON SYSTEM — inline SVG (Instagram-style, zero-emoji UI)
+   ═══════════════════════════════════════════════════════════════ */
+svg.ic{width:18px;height:18px;flex:none;stroke-width:1.8}
+.ic-s{width:14px;height:14px}
+.ic-l{width:24px;height:24px}
+.ic-xl{width:60px;height:60px;stroke-width:1.1;opacity:.85}
+.cat-ic{width:30px;height:30px}
+.big-ic{width:44px;height:44px;margin:0 auto 10px;display:block;stroke-width:1.4}
+.empty .big{margin-bottom:2px}
+.ic-s.star{color:var(--gold)}
+.ph-g{color:var(--dim2)}
+.ph-media{height:170px;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 130% at 20% 0%,#1a2547,#0b1122 70%)}
+.badge-drop{display:inline-flex;align-items:center;gap:5px}
+.badge-drop .ic-s{width:12px;height:12px}
+
+/* hub glass buttons: white icon on gradient tile */
+.glass-btn .g-ic{color:#fff}
+.glass-btn .g-ic svg.ic{width:19px;height:19px}
+
+/* wallet buttons + tx rows: SVG inside tiles */
+.w-btn .ic{display:flex;align-items:center;justify-content:center;margin:0 auto 6px;font-size:0}
+.w-btn .ic svg{width:20px;height:20px}
+.tx .ic svg{width:19px;height:19px}
+
+/* pill buttons with icons (profile) */
+.pill-btn{display:inline-flex;align-items:center;gap:6px}
+
+/* story rings: svg category icons */
+.story .inner{font-size:0}
+.story .inner svg.cat-ic{stroke-width:1.6}
+.ic-xs{width:11px;height:11px;stroke-width:2.4;vertical-align:-1px}
+.badge-role{display:inline-flex;align-items:center;gap:4px}
+.vf{display:inline-flex;vertical-align:0}
+.seg button{display:flex;align-items:center;justify-content:center;gap:6px}
+h3 .ic-s,h4 .ic-s{vertical-align:-2px}
+.cat-card .ic{font-size:0;display:flex;justify-content:center;margin-bottom:3px}
+.cat-card .ic svg{width:22px;height:22px}
+.rank-img{font-size:0}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   v1.3.0 NEON LAYER — component polish (0xBazaar design DNA)
+   charcoal glass · neon emerald rings · cyan glow · gold micro-accent
+   ═══════════════════════════════════════════════════════════════════ */
+.topbar{background:rgba(6,8,7,.8)}
+.topbar .logo{box-shadow:0 0 0 2px #00ff8832,0 0 16px #00ff8838}
+.topbar .title{background:linear-gradient(90deg,#eafff3,#8fffc4 45%,#57e0ff);
+  -webkit-background-clip:text;background-clip:text}
+.bottomnav{background:rgba(7,10,9,.87)}
+
+.post{background:linear-gradient(180deg,rgba(17,23,20,.72),rgba(10,14,12,.62));
+  border-color:#1d2622;transition:border-color .18s, transform .18s}
+.post:active{border-color:#00ff8840}
+.avatar{border-color:#00ff8838;box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px #00ff8834}
+.p-name .vf{color:var(--em)}
+.story .ring{background:conic-gradient(from 210deg,#00FF88,#00c46a,#39d7ff,#00FF88);
+  box-shadow:0 0 16px #00ff8842}
+.post-media{background:#070a09}
+.badge-drop{box-shadow:0 0 18px #00ff8855}
+
+.btn-primary{box-shadow:0 6px 22px #00ff8834, inset 0 0 0 1px #00ff8830}
+.btn-blue{background:linear-gradient(180deg,#141b17,#0d1310);color:var(--txt);
+  border:1px solid var(--line2);box-shadow:none}
+.seg{background:rgba(11,15,13,.72)}
+.seg button.on{box-shadow:0 0 14px #00ff8824}
+.chip.on{box-shadow:0 0 12px #00ff8822}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--em);
+  box-shadow:0 0 0 3px #00ff881c}
+.empty .big{filter:drop-shadow(0 0 14px #00ff8826)}
+.price{text-shadow:0 0 18px #00ff8830}
+
+/* ── v1.3: neon bottom-sheet (purchase flow) ── */
+.novl{position:fixed;inset:0;z-index:95;background:#000000b8;backdrop-filter:blur(7px);
+  display:flex;align-items:flex-end;justify-content:center;opacity:0;transition:opacity .2s}
+.novl.show{opacity:1}
+.nsheet{width:min(520px,100%);max-height:86dvh;overflow-y:auto;
+  background:linear-gradient(180deg,#121815,#0B0F0D);border:1px solid #26332d;border-bottom:0;
+  border-radius:22px 22px 0 0;padding:14px var(--pad) calc(20px + env(safe-area-inset-bottom,0px));
+  transform:translateY(40px);transition:transform .22s cubic-bezier(.2,.9,.3,1)}
+.novl.show .nsheet{transform:none}
+.sheet-grip{width:42px;height:4px;border-radius:99px;background:#2a3830;margin:0 auto 14px}
+.nsheet h3{font-size:16px;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.buy-prod{display:flex;gap:10px;align-items:center;background:#0e1411;
+  border:1px solid #1e2a24;border-radius:14px;padding:10px;margin-bottom:12px}
+.buy-prod .bp-img{width:52px;height:52px;border-radius:10px;object-fit:cover;flex:none;
+  background:#101613;display:flex;align-items:center;justify-content:center;color:var(--dim2)}
+.buy-prod b{font-size:13px;display:block}
+.buy-prod span{font-size:11px;color:var(--dim)}
+.sumrow{display:flex;justify-content:space-between;align-items:center;
+  font-size:12.5px;color:var(--dim);padding:7px 2px}
+.sumrow b{color:var(--txt);font-weight:700}
+.sumrow.total{border-top:1px dashed #2a3830;margin-top:4px;padding-top:11px}
+.sumrow.total span{color:var(--txt);font-weight:800}
+.sumrow.total b{color:var(--em);font-size:16px}
+.free{color:var(--em)!important}
+.insuff{background:#2b1414;border:1px solid #4a2020;color:#ff8f8f;border-radius:10px;
+  padding:9px 12px;font-size:11.5px;margin:6px 0 2px;line-height:1.8}
+.nsheet .btn{width:100%;margin-top:8px}
+.burst-wrap{position:relative;width:78px;height:78px;margin:6px auto 14px}
+.burst-wrap .success-ring{width:100%;height:100%;border-radius:99px;background:var(--em);
+  color:#03130a;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 36px #00ff8858}
+.burst-wrap .success-ring svg{width:34px;height:34px;stroke-width:2.6}
+.ring-pulse{position:absolute;inset:0;border-radius:99px;border:2px solid var(--em);
+  animation:ringp 1.7s ease-out infinite;pointer-events:none}
+@keyframes ringp{from{transform:scale(1);opacity:.7}to{transform:scale(1.75);opacity:0}}
+.ssheet{border-radius:22px;text-align:center;padding:22px 18px}
+.lnk{background:none;border:0;color:var(--dim2);font-family:inherit;font-size:12px;
+  margin-top:12px;cursor:pointer;text-decoration:underline;text-underline-offset:4px}

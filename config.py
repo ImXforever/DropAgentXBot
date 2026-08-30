@@ -7,7 +7,7 @@ load_dotenv()
 
 # Semantic version of the project. Bumped on each release so the bot, web UI and
 # health checks can report which build is running.
-VERSION = "1.0.0"  # «تک» — هاب شیشه‌ای لینک‌ها + ریلیز کامل
+VERSION = "1.3.0"  # «تک» — هاب شیشه‌ای لینک‌ها + ریلیز کامل
 APP_NAME = "DropAgentX / Hermes Marketplace Bot"
 
 

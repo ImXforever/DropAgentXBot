@@ -1,4 +1,6 @@
-/* DropAgentX — hash router + bottom nav + topbar */
+/* DropAgentX — hash router + bottom nav + topbar
+   v1.1: role-aware topbar (admin shield only for admins), real notification
+   dot (was a hardcoded fake), haptic nav taps, scroll reset per page. */
 DGX.pages = {};
 
 DGX.renderNav = () => {
@@ -11,29 +13,37 @@ DGX.renderNav = () => {
   ];
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
+  nav.setAttribute('role', 'tablist');
   for (const [hash, icon, label] of items) {
     if (hash === 'CREATE') {
       const d = document.createElement('div');
       d.className = 'bn-create';
-      d.innerHTML = `<button title="ساخت محصول" aria-label="ساخت محصول">+</button>`;
-      d.querySelector('button').onclick = () => location.hash = '#/create';
+      d.innerHTML = `<button title="ساخت محصول" aria-label="ساخت محصول" aria-role="tab"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>`;
+      d.querySelector('button').onclick = () => { DGX.haptic('light'); location.hash = '#/create'; };
       nav.appendChild(d);
       continue;
     }
     const a = document.createElement('a');
     a.className = 'bn-item'; a.href = hash; a.dataset.hash = hash;
+    a.setAttribute('role', 'tab'); a.setAttribute('aria-label', label);
     a.innerHTML = `<svg><use href="#${icon}"/></svg><span>${label}</span>`;
+    a.onclick = () => DGX.haptic('light');
     nav.appendChild(a);
   }
 };
 
 DGX.renderTopbar = (title) => {
   const tb = document.getElementById('topbar');
+  const unread = localStorage.getItem('dgx_unread') === '1';
   tb.innerHTML = `
-    <img class="logo" src="/app/assets/logo.jpg" alt="DropAgentX">
+    <img class="logo" src="/app/assets/logo.jpg" alt="DropAgentX" width="30" height="30">
     <span class="title">${title || ''}</span>
     <span class="spacer"></span>
-    <button class="icon-btn" style="position:relative" data-badge="1" onclick="location.hash='#/activity'" title="فعالیت">
+    ${DGX.isAdmin() ? `<button class="icon-btn shield" onclick="location.href='/admin'" title="پنل مدیریت (ادمین)">
+      ${DGX.icon('shield', 'ic-s')}
+    </button>` : ''}
+    <button class="icon-btn" style="position:relative" data-badge="${unread ? 1 : 0}"
+      onclick="localStorage.setItem('dgx_unread','0');this.dataset.badge='0';location.hash='#/activity'" title="فعالیت">
       <svg width="18" height="18"><use href="#i-bell"/></svg><span class="dot"></span>
     </button>
     <button class="icon-btn" onclick="location.hash='#/search'" title="جستجو">
@@ -57,6 +67,7 @@ DGX.route = () => {
   DGX.renderTopbar(titles[page] || '');
   const view = document.getElementById('view');
   view.className = 'page';
+  scrollTo(0, 0);                                  // mobile: every page starts at top
   if (!fn) { location.hash = '#/home'; return; }
   fn(view, params).catch(e => {
     if (e && e.silent) return;

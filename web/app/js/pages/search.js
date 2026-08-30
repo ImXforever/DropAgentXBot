@@ -6,9 +6,10 @@ DGX.pages.search = async (view, params) => {
   view.innerHTML = `
     <div class="search-bar2">
       <svg width="18" height="18" style="color:var(--dim);flex:none"><use href="#i-search"/></svg>
-      <input id="sq" placeholder="محصول یا کاربر…" value="${DGX.esc(q0)}" autocomplete="off">
+      <input id="sq" placeholder="محصول یا کاربر…" value="${DGX.esc(q0)}" autocomplete="off"
+         enterkeyhint="search" autocapitalize="off" spellcheck="false">
     </div>
-    <div id="sOut"><div class="empty"><div class="big">🔍</div>دنبال چی می‌گردی؟<br>
+    <div id="sOut"><div class="empty"><div class="big">${DGX.icon('search','big-ic')}</div>دنبال چی می‌گردی؟<br>
       اسم محصول، دسته یا سازنده را بنویس</div></div>`;
   const inp = DGX.$('#sq'), out = DGX.$('#sOut');
   inp.focus();
@@ -16,7 +17,7 @@ DGX.pages.search = async (view, params) => {
   let deb = null, lastQ = '';
   async function run(q) {
     if (q.length < 2) {
-      out.innerHTML = `<div class="empty"><div class="big">🔍</div>حداقل ۲ حرف…</div>`;
+      out.innerHTML = `<div class="empty"><div class="big">${DGX.icon('search','big-ic')}</div>حداقل ۲ حرف…</div>`;
       return;
     }
     lastQ = q;
@@ -26,7 +27,7 @@ DGX.pages.search = async (view, params) => {
       if (lastQ !== q) return;                       // stale guard
       let html = '';
       if (d.users.length) {
-        html += '<h2 style="margin:4px 0 8px">👥 کاربران</h2>';
+        html += `<h2 style="margin:4px 0 8px;display:flex;align-items:center;gap:6px">${DGX.icon('users','ic-s')} کاربران</h2>`;
         html += d.users.map(u => `
           <div class="user-row">
             <img class="avatar" src="/app/assets/logo.jpg" style="width:38px;height:38px">
@@ -38,7 +39,7 @@ DGX.pages.search = async (view, params) => {
           </div>`).join('');
       }
       if (d.products.length) {
-        html += `<h2 style="margin:14px 0 10px">📦 محصولات</h2>` +
+        html += `<h2 style="margin:14px 0 10px">${DGX.icon('box','ic-s')} محصولات</h2>` +
           d.products.map(DGX.postCard).join('');
       }
       out.innerHTML = html || `<div class="empty"><div class="big">🫥</div>

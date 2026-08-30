@@ -18,16 +18,16 @@ DGX.pages.product = async (view, params) => {
          onerror="this.src=''" alt="" style="${p.photo_url ? '' : 'display:flex;align-items:center;justify-content:center;font-size:64px'}">
     <h1 style="font-size:19px;margin:14px 0 6px;line-height:1.7">${DGX.esc(p.title)}</h1>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-      <span class="pill p-ok" style="font-size:11px">⭐ ${d.stars} (${d.reviews} دیدگاه)</span>
-      <span style="color:var(--dim);font-size:12px">🛒 ${DGX.kfmt(p.sales_count)} فروش</span>
-      <span style="color:var(--dim2);font-size:12px">👁 ${DGX.kfmt(p.views)}</span>
+      <span class="pill p-ok" style="font-size:11px">${DGX.icon('star-f','ic-s star')} ${d.stars} (${d.reviews} دیدگاه)</span>
+      <span style="color:var(--dim);font-size:12px">${DGX.icon('cart','ic-s')} ${DGX.kfmt(p.sales_count)} فروش</span>
+      <span style="color:var(--dim2);font-size:12px">${DGX.icon('eye','ic-s')} ${DGX.kfmt(p.views)}</span>
     </div>
     <div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);
                 padding:13px 15px;font-size:13.5px;line-height:2.1;color:#dbe3dd">
       ${(p.description || '—').replace(/\n/g, '<br>')}
     </div>
 
-    <h3 style="margin:18px 0 8px">💬 دیدگاه‌ها (${p.comment_count || 0})</h3>
+    <h3 style="margin:18px 0 8px">${DGX.icon('comment','ic-s')} دیدگاه‌ها (${p.comment_count || 0})</h3>
     <div id="cList">${(d.comments || []).map(c => `
       <div class="comment">
         <img class="avatar" src="/app/assets/logo.jpg">
@@ -37,7 +37,7 @@ DGX.pages.product = async (view, params) => {
       </div>`).join('') || '<div style="color:var(--dim);font-size:12.5px">اولین نظر رو بذار 💬</div>'}
     </div>
     <div class="search-bar2" style="margin-top:10px;padding:8px 10px">
-      <input id="cIn" placeholder="نظرت را بنویس…" maxlength="500"
+      <input id="cIn" placeholder="نظرت را بنویس…" maxlength="500" enterkeyhint="send"
              style="padding:8px;background:none;border:0">
       <button class="btn btn-primary" id="cSend" style="flex:none;padding:9px 16px">ارسال</button>
     </div>
@@ -49,31 +49,32 @@ DGX.pages.product = async (view, params) => {
         <small style="color:var(--dim)">≈${(+p.usd).toFixed(2)}$</small>
       </div>
       ${owned ? `<button class="btn btn-ghost" onclick="history.back()">✓ خریده‌ای</button>`
-              : `<button class="btn btn-primary" id="buyNow" style="flex:1">🛒 خرید فوری</button>`}
+              : `<button class="btn btn-primary" id="buyNow" style="flex:1">${DGX.icon('cart','ic-s')} خرید فوری</button>`}
+      <button class="icon-btn" onclick="DGX.shareProduct(${pid})" title="اشتراک" aria-label="اشتراک">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
+      </button>
     </div>`;
 
   // buy with celebration
+  /* v1.3: same neon confirm-sheet flow as the feed */
   const buyBtn = DGX.$('#buyNow');
-  if (buyBtn) buyBtn.onclick = async () => {
-    DGX.haptic('medium');
-    buyBtn.disabled = true; buyBtn.innerHTML = '⏳ پردازش…';
-    try {
-      const r = await DGX.api(`/api/app/buy/${pid}`, { body: {} });
-      buyBtn.outerHTML = `
+  if (buyBtn) buyBtn.onclick = () => {
+    if (!DGX.requireAuth('خرید')) return;
+    DGX.confirmBuy({ id: +p.id, title: p.title, price_credits: +p.price_credits || 0,
+                     seller: (d && d.store_name) || p.store_name || '',
+                     photo_url: p.photo_url || '' },
+      () => { buyBtn.outerHTML = `
         <div style="flex:1;text-align:center">
           <div class="burst success-ring" style="width:44px;height:44px;border-radius:99px;
             background:var(--em);color:#03130a;display:inline-flex;align-items:center;
-            justify-content:center;font-size:22px;font-weight:900">✓</div>
-          <div style="font-size:12px;color:var(--em);margin-top:4px">خرید موفق 🎉</div>
-        </div>`;
-      DGX.toast('مبارک! محصول مال تو شد 🎉');
-      if (r.file_url) open(r.file_url, '_blank');
-    } catch (e) { buyBtn.disabled = false; buyBtn.textContent = '🛒 خرید فوری';
-                  DGX.toast(e.msg || '', true); }
+            justify-content:center">${DGX.icon('check')}</div>
+          <div style="font-size:12px;color:var(--em);margin-top:4px">خرید موفق</div>
+        </div>`; });
   };
 
   const send = DGX.$('#cSend');
   send.onclick = async () => {
+    if (!DGX.requireAuth('ثبت نظر')) return;
     const inp = DGX.$('#cIn'), text = inp.value.trim();
     if (!text) return;
     send.disabled = true;
@@ -83,4 +84,10 @@ DGX.pages.product = async (view, params) => {
       DGX.pages.product(view, params);
     } catch (e) { DGX.toast(e.msg || '', true); send.disabled = false; }
   };
+};
+
+DGX.shareProduct = pid => {
+  const t = document.querySelector('h1');
+  DGX.shareUrl(location.origin + '/#/product?id=' + pid,
+               '🛍 ' + (t ? t.textContent : '') + ' — روی DropAgentX');
 };

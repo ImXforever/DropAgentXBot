@@ -135,7 +135,8 @@ def register(app):
         resp = __import__("fastapi").responses.JSONResponse({
             "token": tok,
             "user": {"id": uid, "name": u["first_name"], "username": u["username"],
-                     "credits": u["credits"], "role": u["role"]},
+                     "credits": u["credits"], "role": u["role"],
+                     "is_admin": uid in cfg.ADMIN_IDS},
         })
         resp.set_cookie("happ", tok, max_age=86400 * 30, httponly=True,
                         secure=os.getenv("COOKIE_SECURE", "1" if os.getenv("APP_ENV", "production") == "production" else "0") == "1",
@@ -157,7 +158,8 @@ def register(app):
             from database import create_user
             u = await create_user(uid, str(uid), f"User {uid}")
         return {"id": uid, "name": u["first_name"], "username": u["username"],
-                "credits": u["credits"], "role": u["role"]}
+                "credits": u["credits"], "role": u["role"],
+                "is_admin": uid in cfg.ADMIN_IDS}
 
     # ---------------------------------------- browser login (code flow) --
 
@@ -241,7 +243,8 @@ def register(app):
         resp = __import__("fastapi").responses.JSONResponse({
             "token": tok,
             "user": {"id": uid, "name": u["first_name"], "username": u["username"],
-                     "credits": u["credits"], "role": u["role"]},
+                     "credits": u["credits"], "role": u["role"],
+                     "is_admin": uid in cfg.ADMIN_IDS},
         })
         resp.set_cookie("happ", tok, max_age=86400 * 30, httponly=True,
                         secure=os.getenv("COOKIE_SECURE", "1" if os.getenv("APP_ENV", "production") == "production" else "0") == "1",
@@ -385,15 +388,58 @@ def register(app):
             cond += " AND p.category=?"
             params.append(cat)
         follow_sel = ""
-        order = ("(COALESCE(p.like_count,0)*3 + COALESCE(p.sales_count,0)*4 "
-                 "+ COALESCE(p.impressions,0)*0.05) "
-                 "/ (1 + (strftime('%s','now') - p.created_at)/172800.0) DESC")
+        # ── v1.2.1 Instagram-style ranking (signal → source → context) ──
+        # base quality score: weighted engagement with 2-day time decay
+        quality = ("(COALESCE(p.like_count,0)*3 + COALESCE(p.save_count,0)*4 "
+                   "+ COALESCE(p.sales_count,0)*5 + COALESCE(p.comment_count,0)*2 "
+                   "+ COALESCE(p.impressions,0)*0.05) "
+                   "/ (1 + (strftime('%s','now') - p.created_at)/172800.0)")
         if mode == "following" and uid:
             follow_sel = (", (CASE WHEN EXISTS(SELECT 1 FROM follows f "
                           "WHERE f.follower_id=? AND f.target_id=p.creator_id) "
                           "THEN 1 ELSE 0 END) AS is_follow")
-            order = "is_follow DESC, " + order
+            order = "is_follow DESC, " + quality + " DESC"
             params.append(int(uid))
+        elif mode == "foryou" and uid:
+            # personalization: per-user category affinity learned from real
+            # behaviour — purchases weigh more than likes/saves (purchase
+            # is the strongest interest signal, like Instagram's "negative
+            # feedback" logic but positive-first).
+            bought_cats: list = []
+            liked_cats: list = []
+            async with get_db() as db:
+                cur = await db.execute(
+                    """SELECT p.category FROM purchases pc JOIN products p
+                       ON p.id=pc.product_id WHERE pc.buyer_id=?
+                       GROUP BY p.category ORDER BY COUNT(*) DESC LIMIT 5""",
+                    (uid,))
+                bought_cats = [r[0] for r in await cur.fetchall() if r[0]]
+                cur = await db.execute(
+                    """SELECT p.category FROM product_engagement pe
+                       JOIN products p ON p.id=pe.product_id
+                       WHERE pe.user_id=? AND pe.type IN ('like','save')
+                       GROUP BY p.category ORDER BY COUNT(*) DESC LIMIT 5""",
+                    (uid,))
+                liked_cats = [r[0] for r in await cur.fetchall() if r[0]]
+            follows_sql = ("CASE WHEN EXISTS(SELECT 1 FROM follows f "
+                           "WHERE f.follower_id=? AND f.target_id=p.creator_id) "
+                           "THEN 45 ELSE 0 END")
+            bought_sql, liked_sql = "0", "0"
+            order_params: list = [int(uid)]
+            if bought_cats:
+                bought_sql = (f"CASE WHEN p.category IN "
+                              f"({','.join('?' * len(bought_cats))}) THEN 35 ELSE 0 END")
+                order_params += bought_cats
+            if liked_cats:
+                liked_sql = (f"CASE WHEN p.category IN "
+                             f"({','.join('?' * len(liked_cats))}) THEN 22 ELSE 0 END")
+                order_params += liked_cats
+            # +diversity jitter so the feed doesn't fossilize
+            order = (f"({follows_sql} + {bought_sql} + {liked_sql} "
+                     f"+ {quality} + (ABS(RANDOM()) % 3)) DESC")
+            params += order_params
+        else:
+            order = quality + " DESC"
         sql = f"""
             SELECT p.id, p.title, p.description, p.price_credits, p.photo_path,
                    p.preview_path, p.category, p.sales_count, p.is_featured,
